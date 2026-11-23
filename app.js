@@ -69,7 +69,9 @@ const defaults = () => ({
   creators: [],
   inspirations: [],
   lastReview: '',
-  hideStart: false
+  hideStart: false,
+  settings: {},
+  updatedAt: ''
 });
 
 function migrate(s) {
@@ -79,6 +81,7 @@ function migrate(s) {
   if (!Array.isArray(o.items)) o.items = [];
   if (!Array.isArray(o.trends)) o.trends = [];
   if (!Array.isArray(o.history)) o.history = [];
+  if (!o.settings || typeof o.settings !== 'object') o.settings = {};
   if (!Array.isArray(o.creators)) o.creators = [];
   if (!Array.isArray(o.inspirations)) o.inspirations = [];
   o.trends.forEach(t => { if (!t.status) t.status = 'à tester'; if (t.changed == null) t.changed = ''; });
@@ -102,7 +105,11 @@ function load() {
   } catch (e) { /* stockage indisponible */ }
   return migrate(defaults());
 }
-function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* ignore */ } }
+function save(touch) {
+  if (touch !== false) state.updatedAt = new Date().toISOString();
+  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* ignore */ }
+  if (touch !== false && typeof afterSave === 'function') afterSave();
+}
 
 let state = load();
 let page = 'overview';
@@ -499,7 +506,7 @@ function render() {
   const toggleIcon = isMobile() ? 'x' : sideCollapsed ? 'chevR' : 'chevL';
   const toggleTitle = isMobile() ? 'Fermer le menu' : sideCollapsed ? 'Agrandir le menu' : 'Réduire le menu';
   $('#side').innerHTML = `<div class="brand"><div class="avatar">M</div><div class="brand-t"><b>Miahso_</b><small>ASMR &amp; lifestyle</small></div><button class="side-toggle" data-action="side-toggle" title="${toggleTitle}" aria-label="${toggleTitle}">${icon(toggleIcon)}</button></div>` +
-    NAV.map(([g, list]) => `<div class="sec">${g}</div>` + list.map(([id, label, , ic]) => `<button class="nav-i ${page === id ? 'on' : ''}" data-action="nav" data-id="${id}" title="${esc(label)}">${icon(ic)}<span class="lbl">${label}</span>${badgeFor(id, nIdeas)}</button>`).join('')).join('');
+    NAV.map(([g, list]) => `<div class="sec">${g}</div>` + list.map(([id, label, , ic]) => `<button class="nav-i ${page === id ? 'on' : ''}" data-action="nav" data-id="${id}" title="${esc(label)}">${icon(ic)}<span class="lbl">${label}</span>${badgeFor(id, nIdeas)}</button>`).join('')).join('') + (typeof syncStatusHtml === 'function' ? syncStatusHtml() : '');
   $('#topbar').innerHTML = `<button data-action="menu" aria-label="Ouvrir le menu">${icon('menu')}</button><b>Miahso_</b>`;
   $('#view').innerHTML = PAGES[page]();
   $('#fab').innerHTML = fabHtml();
@@ -669,6 +676,7 @@ document.addEventListener('click', e => {
       a.click(); break;
     }
     case 'import': $('#file').click(); break;
+    default: if (typeof extraAction === 'function') extraAction(t.dataset.action, t, id);
   }
 });
 
@@ -688,6 +696,6 @@ $('#file').addEventListener('change', e => {
 });
 
 window.addEventListener('resize', () => { if (!isMobile() && sideOpen) { sideOpen = false; render(); } });
-save();
+save(false);
 render();
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
