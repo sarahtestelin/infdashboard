@@ -48,7 +48,9 @@ const ICONS = {
   up: '<path d="M12 20V8m0 0-5 5m5-5 5 5M5 4h14"/>',
   chevL: '<path d="m15 6-6 6 6 6"/>',
   chevR: '<path d="m9 6 6 6-6 6"/>',
-  menu: '<path d="M4 7h16M4 12h16M4 17h16"/>'
+  menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+  star: '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9L12 3Z"/>',
+  list: '<path d="M9 6h11M9 12h11M9 18h11"/><path d="m3.5 6 1 1 2-2M3.5 12l1 1 2-2M3.5 18l1 1 2-2"/>'
 };
 const icon = n => `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[n] || ''}</svg>`;
 
@@ -63,7 +65,11 @@ const defaults = () => ({
   ],
   items: [],
   trends: [],
-  history: []
+  history: [],
+  creators: [],
+  inspirations: [],
+  lastReview: '',
+  hideStart: false
 });
 
 function migrate(s) {
@@ -73,6 +79,9 @@ function migrate(s) {
   if (!Array.isArray(o.items)) o.items = [];
   if (!Array.isArray(o.trends)) o.trends = [];
   if (!Array.isArray(o.history)) o.history = [];
+  if (!Array.isArray(o.creators)) o.creators = [];
+  if (!Array.isArray(o.inspirations)) o.inspirations = [];
+  o.trends.forEach(t => { if (!t.status) t.status = 'à tester'; if (t.changed == null) t.changed = ''; });
   if (Array.isArray(s && s.posts) || Array.isArray(s && s.ideas)) {
     const map = { 'tournage': 'à tourner', 'montage': 'montage', 'idée': 'idée', 'publié': 'publié' };
     (s.ideas || []).forEach(i => o.items.push({ id: i.id, title: i.text, category: i.category, accountId: i.accountId || '', status: map[i.status] || 'idée', date: '', views: '', likes: '', comments: '' }));
@@ -105,6 +114,19 @@ let sideOpen = false;
 let sideCollapsed = false;
 try { sideCollapsed = localStorage.getItem('miahso-side') === '1'; } catch (e) { /* ignore */ }
 const isMobile = () => window.matchMedia('(max-width:900px)').matches;
+let trendFilter = 'all';
+let fabOpen = false;
+const safeUrl = u => /^https?:\/\//i.test(u || '') ? u : '';
+const reviewDue = () => !state.lastReview || daysBetween(state.lastReview, today()) >= 7;
+const badgeFor = (id, n) => id === 'bank' && n ? `<span class="badge">${n}</span>` : id === 'review' && reviewDue() ? '<span class="badge warn">!</span>' : '';
+function toast(msg) {
+  const el = $('#toast');
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toast.t);
+  toast.t = setTimeout(() => el.classList.remove('show'), 2800);
+}
 
 const acc = id => state.accounts.find(a => a.id === id);
 const accName = id => (acc(id) || { name: 'Non défini' }).name;
@@ -157,8 +179,9 @@ function dayAverages(items) {
 }
 function insights(accId) {
   const out = { working: [], notw: [] };
-  const a = acc(accId), all = periodItems(period, 0, accId), its = withViews(all);
-  const exp = (Number(a.weekly) || 0) * period / 7, cnt = all.length;
+  const weekly = accId ? (Number(acc(accId).weekly) || 0) : state.accounts.reduce((x, y) => x + (Number(y.weekly) || 0), 0);
+  const all = periodItems(period, 0, accId), its = withViews(all);
+  const exp = weekly * period / 7, cnt = all.length;
   if (exp >= 1) {
     if (cnt >= exp) out.working.push({ t: 'Rythme tenu', d: `${cnt} post${cnt > 1 ? 's' : ''} publié${cnt > 1 ? 's' : ''} pour ${Math.round(exp)} visés sur ${period} jours.` });
     else if (cnt < exp * 0.7) out.notw.push({ t: 'Rythme de publication', d: `${cnt} post${cnt > 1 ? 's' : ''} publié${cnt > 1 ? 's' : ''} pour ${Math.round(exp)} visés sur ${period} jours.` });
@@ -241,7 +264,7 @@ function overview() {
   }).join('');
 
   return head(`${greeting()}, Sarah`, sub, `<button class="btn" data-action="export">${icon('down')} Exporter</button>`) +
-    `<div class="bar-tools">${periodPills()}</div><div class="tiles">${tiles}</div>
+    startCard() + todoCard() + `<div class="bar-tools">${periodPills()}</div><div class="tiles">${tiles}</div>
     <div class="grid">
       <div>
         <section class="card"><h3>Vues par semaine de publication</h3>
@@ -297,7 +320,7 @@ const itemCard = i => `<div class="kcard" data-action="edit-item" data-id="${esc
 
 function bank() {
   const ideas = state.items.filter(i => i.status === 'idée');
-  const cards = ideas.map(i => `<div class="idea" data-action="edit-item" data-id="${esc(i.id)}"><b>${esc(i.title)}</b><div class="meta"><span class="cat">${esc(i.category)}</span><span>${accDot(i.accountId)} ${esc(accName(i.accountId))}</span></div><div><button class="btn sm" data-action="advance" data-id="${esc(i.id)}">Lancer →</button></div></div>`).join('');
+  const cards = ideas.map(i => `<div class="idea" data-action="edit-item" data-id="${esc(i.id)}"><b>${esc(i.title)}</b>${i.note ? `<small class="muted">${esc(i.note.slice(0, 110))}${i.note.length > 110 ? '…' : ''}</small>` : ''}<div class="meta"><span class="cat">${esc(i.category)}</span><span>${accDot(i.accountId)} ${esc(accName(i.accountId))}</span></div><div><button class="btn sm" data-action="advance" data-id="${esc(i.id)}">Lancer →</button></div></div>`).join('');
   return head("Banque d'idées", 'Tout ce que tu as envie de faire un jour. Quand tu te lances, l\'idée passe dans le calendrier.', `<button class="btn" data-action="add-item" data-status="idée">${icon('plus')} Nouvelle idée</button>`) +
     (cards ? `<div class="cards">${cards}</div>` : '<div class="card empty">Aucune idée pour l\'instant. Ajoute-en une, ou pars des tendances.</div>');
 }
@@ -337,16 +360,136 @@ function calendar() {
     `<div class="tiles">${tiles}</div><div class="bar-tools"><div class="seg">${[['pipeline', 'Pipeline'], ['month', 'Mois'], ['list', 'Liste']].map(([v, l]) => `<button data-action="calview" data-id="${v}" class="${calView === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>${body}`;
 }
 
-function trends() {
-  const cards = state.trends.map(t => `<div class="idea" data-action="edit-trend" data-id="${esc(t.id)}"><b>${esc(t.topic)}</b><div class="meta"><span class="cat">${esc(t.platform)}</span><span>${esc(dateFR(t.date))}</span></div>${t.note ? `<small class="muted">${esc(t.note)}</small>` : ''}<div><button class="btn sm" data-action="trend-idea" data-id="${esc(t.id)}">Ajouter aux idées</button></div></div>`).join('');
-  return head('Sujets tendance', 'Note ici ce qui monte dans ta niche (ASMR, lifestyle, pop culture…), puis transforme-le en idée.', `<button class="btn" data-action="add-trend">${icon('plus')} Nouvelle tendance</button>`) +
-    (cards ? `<div class="cards">${cards}</div>` : '<div class="card empty">Aucune tendance notée pour l\'instant.</div>');
+const TREND_STATUS = ['à tester', 'en test', 'ça marche', 'bof', 'trop tard'];
+const trendDone = s => ['ça marche', 'bof', 'trop tard'].includes(s);
+
+/* ---------- À faire (rappels intelligents) ---------- */
+function todos() {
+  const out = [], t = today(), wk0 = mondayOf(t), wk1 = addDays(wk0, 6);
+  if (reviewDue()) out.push({ ic: 'check', t: 'Fais ta revue de la semaine', s: state.lastReview ? 'Dernière revue : ' + rel(state.lastReview).toLowerCase() : 'Pas encore de revue : 5 minutes pour faire le point', b: 'Commencer', a: 'nav', id: 'review' });
+  const target = state.accounts.reduce((s, a) => s + (Number(a.weekly) || 0), 0);
+  const inWeek = state.items.filter(i => i.date >= wk0 && i.date <= wk1 && i.status !== 'idée').length;
+  if (target && inWeek < target) out.push({ ic: 'cal', t: `Il te manque ${target - inWeek} contenu${target - inWeek > 1 ? 's' : ''} pour tenir ton rythme`, s: `${inWeek} prévu${inWeek > 1 ? 's' : ''} ou publié${inWeek > 1 ? 's' : ''} sur ${target} visés cette semaine`, b: 'Planifier', a: 'add-item', attrs: 'data-status="planifié"' });
+  state.items.filter(i => ['écriture', 'à tourner', 'montage'].includes(i.status) && i.moved && daysBetween(i.moved, t) >= 10).slice(0, 2)
+    .forEach(i => out.push({ ic: 'video', t: `« ${i.title} » traîne`, s: `En « ${i.status} » depuis ${daysBetween(i.moved, t)} jours : avance ou abandonne.`, b: 'Ouvrir', a: 'edit-item', id: i.id }));
+  const noViews = published().filter(i => i.date <= addDays(t, -2) && !Number(i.views)).length;
+  if (noViews) out.push({ ic: 'eye', t: `${noViews} post${noViews > 1 ? 's' : ''} publié${noViews > 1 ? 's' : ''} sans vues`, s: 'Sans les vues, l\'analyse ne peut pas t\'aider.', b: 'Ajouter les vues', a: 'nav', id: 'review' });
+  const stale = state.accounts.some(a => { const h = state.history.filter(x => x.accountId === a.id).map(x => x.date).sort().pop(); return !h || daysBetween(h, t) >= 7; });
+  if (stale) out.push({ ic: 'users', t: 'Mets à jour tes abonnés', s: 'Pas de mise à jour depuis plus d\'une semaine.', b: 'Mettre à jour', a: 'nav', id: 'review' });
+  if (state.items.filter(i => i.status === 'idée').length < 3) out.push({ ic: 'bulb', t: 'Ta banque d\'idées est presque vide', s: 'Va voir tes tendances et tes inspirations, ou note une idée.', b: 'Ajouter une idée', a: 'add-item', attrs: 'data-status="idée"' });
+  return out.slice(0, 5);
+}
+function todoCard() {
+  const l = todos();
+  return `<section class="card todo"><h3>À faire maintenant <span class="count ${l.length ? 'no' : 'ok'}">${l.length}</span></h3>${l.map(x => `<div class="ins-row todo-row"><span class="ins-ic no">${icon(x.ic)}</span><div style="flex:1;min-width:0"><b>${esc(x.t)}</b><p>${esc(x.s || '')}</p></div><button class="btn sm" data-action="${x.a}" ${x.id ? `data-id="${esc(x.id)}"` : ''} ${x.attrs || ''}>${esc(x.b)}</button></div>`).join('') || '<p class="muted pad">Tout est à jour. Beau travail !</p>'}</section>`;
+}
+function startCard() {
+  if (state.hideStart || state.items.length) return '';
+  return `<section class="card start"><h3>Bienvenue Sarah, 3 étapes pour démarrer</h3><div class="steps">
+    <div class="step"><b>1. Tes abonnés</b><p>Vérifie tes chiffres de départ.</p><button class="btn sm" data-action="nav" data-id="review">Mettre à jour</button></div>
+    <div class="step"><b>2. Un post publié</b><p>Ajoute une vidéo avec ses vues pour voir apparaître tes stats.</p><button class="btn sm" data-action="add-item" data-status="publié">Ajouter</button></div>
+    <div class="step"><b>3. Une idée</b><p>Note ce que tu veux tourner bientôt.</p><button class="btn sm" data-action="add-item" data-status="idée">Ajouter</button></div></div>
+    <button class="btn ghost sm" data-action="hide-start">Masquer ce guide</button></section>`;
 }
 
-const PAGES = { overview, platforms, bank, calendar, trends };
+/* ---------- Sujets tendance (avec suivi des tests) ---------- */
+function trends() {
+  const list = state.trends.filter(t => trendFilter === 'all' || (trendFilter === 'done' ? trendDone(t.status) : !trendDone(t.status)));
+  const all = withViews(published()), overall = all.length ? sumViews(all) / all.length : 0;
+  const cards = list.map(t => {
+    const linked = state.items.filter(i => i.trendId === t.id);
+    const res = withViews(linked.filter(i => i.status === 'publié'));
+    let verdict = '';
+    if (res.length && overall) {
+      const av = sumViews(res) / res.length, p = Math.round((av / overall - 1) * 100);
+      verdict = `<div class="verdict ${p >= 0 ? 'up' : 'down'}">Résultat de tes tests : ${fmt(Math.round(av))} vues en moyenne, ${p >= 0 ? '+' : ''}${p} % par rapport à ta moyenne.</div>`;
+    }
+    const cls = t.status === 'ça marche' ? 'ok' : (t.status === 'bof' || t.status === 'trop tard') ? 'plan' : '';
+    return `<div class="idea" data-action="edit-trend" data-id="${esc(t.id)}"><div class="top-r"><b>${esc(t.topic)}</b><span class="pill ${cls}">${esc(t.status)}</span></div><div class="meta"><span class="cat">${esc(t.platform)}</span><span>${esc(rel(t.date))}</span>${linked.length ? `<span>${linked.length} test${linked.length > 1 ? 's' : ''}</span>` : ''}</div>${t.note ? `<small class="muted">${esc(t.note)}</small>` : ''}${t.changed ? `<small><b>Adapté :</b> ${esc(t.changed)}</small>` : ''}${verdict}${linked.length || trendDone(t.status) ? '' : `<div><button class="btn sm" data-action="trend-test" data-id="${esc(t.id)}">Tester cette tendance</button></div>`}</div>`;
+  }).join('');
+  const seg = `<div class="bar-tools"><div class="seg">${[['all', 'Toutes'], ['open', 'À explorer'], ['done', 'Terminées']].map(([v, l]) => `<button data-action="trendfilter" data-id="${v}" class="${trendFilter === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>`;
+  const empty = state.trends.length ? 'Aucune tendance dans cette catégorie.' : 'Aucune tendance notée. Repère un son, un format ou un sujet qui monte, note-le ici, puis teste-le : l\'app te dira si ça marche pour toi.';
+  return head('Sujets tendance', 'Ce qui monte dans ta niche. Note-le, teste-le avec ta touche perso, et vois le résultat.', `<button class="btn" data-action="add-trend">${icon('plus')} Nouvelle tendance</button>`) +
+    (state.trends.length ? seg : '') + (cards ? `<div class="cards">${cards}</div>` : `<div class="card empty">${empty}</div>`);
+}
+
+/* ---------- Veille : créatrices & inspirations ---------- */
+function watch() {
+  const creators = state.creators.map(c => {
+    const n = state.inspirations.filter(i => i.creatorId === c.id).length, url = safeUrl(c.link);
+    return `<div class="idea" data-action="edit-creator" data-id="${esc(c.id)}"><b>${esc(c.name)}</b><div class="meta"><span class="cat">${esc(c.platform)}</span><span>${n} inspiration${n > 1 ? 's' : ''}</span></div>${c.observe ? `<small class="muted">${esc(c.observe)}</small>` : ''}${url ? `<a class="lnk" data-action="open-link" href="${esc(url)}" target="_blank" rel="noopener">Ouvrir le profil ↗</a>` : ''}</div>`;
+  }).join('');
+  const feed = [...state.inspirations].sort((a, b) => (b.date || '').localeCompare(a.date || '')).map(i => {
+    const c = state.creators.find(x => x.id === i.creatorId), url = safeUrl(i.link);
+    return `<div class="insp" data-action="edit-insp" data-id="${esc(i.id)}"><div style="min-width:0"><b>${esc(i.title)}</b><div class="meta">${c ? `<span>${esc(c.name)}</span>` : ''}<span class="cat">${esc(i.category)}</span><span>${esc(rel(i.date))}</span>${i.used ? '<span class="pill">Repris</span>' : ''}</div>${i.note ? `<small class="muted">${esc(i.note)}</small>` : ''}</div><div class="insp-btns">${url ? `<a class="btn ghost sm" data-action="open-link" href="${esc(url)}" target="_blank" rel="noopener">Voir ↗</a>` : ''}${i.used ? '' : `<button class="btn sm" data-action="insp-idea" data-id="${esc(i.id)}">→ Idée</button>`}</div></div>`;
+  }).join('');
+  return head('Veille', 'Les créatrices que tu suis et les vidéos qui t\'inspirent. Note-les en 10 secondes, transforme-les en idées.',
+    `<button class="btn ghost" data-action="add-creator">${icon('plus')} Créatrice</button> <button class="btn" data-action="add-insp">${icon('plus')} Inspiration</button>`) +
+    `<h3 class="sec-h">Créatrices à suivre <span class="count ok">${state.creators.length}</span></h3>` +
+    (creators ? `<div class="cards">${creators}</div>` : '<div class="card empty">Aucune créatrice pour l\'instant. Vise 10 à 15 comptes de ta niche (ASMR, lifestyle, pop culture) et note ce que tu observes chez elles.</div>') +
+    `<h3 class="sec-h">Inspirations récentes <span class="count ok">${state.inspirations.length}</span></h3>` +
+    (feed ? `<section class="card" style="padding-top:6px;padding-bottom:6px">${feed}</section>` : '<div class="card empty">Aucune inspiration. Quand une vidéo te donne une idée, note-la ici avec son lien.</div>');
+}
+
+/* ---------- Revue de la semaine ---------- */
+function review() {
+  const t = today();
+  const rows = published().filter(i => i.date >= addDays(t, -13)).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 12);
+  const ideas = state.items.filter(i => i.status === 'idée').slice(0, 15);
+  const wk = periodItems(7), pw = periodItems(7, 7), vC = sumViews(wk), vP = sumViews(pw);
+  const best = withViews(wk).sort((a, b) => Number(b.views) - Number(a.views))[0];
+  const w = insights(null).working[0];
+  const step = (n, title, sub, body) => `<section class="card"><h3><span class="stepn">${n}</span>${title}</h3><p class="muted" style="margin:0 0 10px">${sub}</p>${body}</section>`;
+  const num = (key, val, label) => `<label>${label}<input type="number" inputmode="numeric" min="0" data-rv="${key}" value="${esc(val)}"></label>`;
+  const s1 = `<div class="rv-grid">${state.accounts.map(a => `<label>${accDot(a.id)} ${esc(a.name)}<input type="number" inputmode="numeric" min="0" data-rv="f:${esc(a.id)}" value="${esc(a.followers)}"></label>`).join('')}</div>`;
+  const s2 = rows.length ? rows.map(i => `<div class="rv-row"><div class="rv-t"><b>${esc(i.title)}</b><small class="muted"> · ${esc(accName(i.accountId))} · ${esc(dateFR(i.date))}</small></div>${num('v:' + i.id, i.views, 'Vues')}${num('l:' + i.id, i.likes, 'Likes')}${num('c:' + i.id, i.comments, 'Comm.')}</div>`).join('')
+    : '<p class="muted">Aucun post publié ces 14 derniers jours. Ajoute-en un avec le bouton +.</p>';
+  const s3 = `<div class="tiles three" style="margin:0">${tile('t-pink', 'Vues, 7 jours', 'eye', fmt(vC), chipPct(vC, vP), vP ? `vs ${fmt(vP)} la semaine d'avant` : 'Pas de semaine précédente')}${tile('t-lime', 'Post star', 'heart', best ? fmt(best.views) : '—', '', best ? esc(best.title) : 'Pas encore de vues saisies')}${tile('t-sage', 'À retenir', 'check', w ? esc(w.t) : '—', '', w ? esc(w.d) : 'Pas encore assez de données')}</div>
+    <small class="muted" style="display:block;margin-top:8px">Ce bilan se met à jour avec les chiffres saisis plus haut après l'enregistrement.</small>`;
+  const s4 = ideas.length ? ideas.map(i => `<label class="check"><input type="checkbox" data-rv="idea:${esc(i.id)}"><span><b>${esc(i.title)}</b> <small class="muted">${esc(i.category)}</small></span></label>`).join('')
+    : '<div class="empty">Ta banque d\'idées est vide. <br><br><button class="btn sm" data-action="add-item" data-status="idée">Ajouter une idée</button></div>';
+  return head('Revue de la semaine', 'Cinq minutes pour faire le point. ' + (state.lastReview ? 'Dernière revue : ' + rel(state.lastReview).toLowerCase() + '.' : 'Rien n\'est enregistré avant « Terminer la revue ».'), '') +
+    step(1, 'Tes abonnés', 'Recopie les chiffres affichés dans chaque application.', s1) +
+    step(2, 'Les stats de tes derniers posts', 'Vues, likes et commentaires : dans les statistiques de chaque vidéo.', s2) +
+    step(3, 'Le bilan de la semaine', 'Calculé automatiquement.', s3) +
+    step(4, 'Tes idées pour la semaine prochaine', 'Coche 2 idées à lancer : elles passent en « écriture ».', s4) +
+    `<div class="actions" style="justify-content:flex-start"><button class="btn" data-action="review-save">Terminer la revue</button></div>`;
+}
+
+function saveReview() {
+  const t = today(), keys = { v: 'views', l: 'likes', c: 'comments' };
+  document.querySelectorAll('[data-rv]').forEach(el => {
+    const sep = el.dataset.rv.indexOf(':'), k = el.dataset.rv.slice(0, sep), id = el.dataset.rv.slice(sep + 1);
+    if (k === 'f') {
+      const a = acc(id);
+      if (!a || el.value === '') return;
+      a.followers = Number(el.value);
+      state.history = state.history.filter(h => !(h.accountId === id && h.date === t));
+      state.history.push({ date: t, accountId: id, followers: a.followers });
+    } else if (keys[k]) {
+      const it = state.items.find(x => x.id === id);
+      if (it) it[keys[k]] = el.value === '' ? '' : Number(el.value);
+    } else if (k === 'idea' && el.checked) {
+      const it = state.items.find(x => x.id === id);
+      if (it) { it.status = 'écriture'; it.moved = t; }
+    }
+  });
+  state.lastReview = t;
+  save(); page = 'overview'; render(); window.scrollTo(0, 0);
+  toast('Revue enregistrée. Bonne semaine !');
+}
+
+/* ---------- bouton + rapide ---------- */
+function fabHtml() {
+  const entries = [['add-item', 'idée', 'bulb', 'Nouvelle idée'], ['add-item', 'planifié', 'cal', 'Contenu planifié'], ['add-item', 'publié', 'video', 'Post publié'], ['add-insp', '', 'star', 'Inspiration'], ['add-trend', '', 'flame', 'Tendance']];
+  return `<div id="fabmenu" class="${fabOpen ? 'open' : ''}">${entries.map(([a, s, ic, l]) => `<button data-action="${a}" ${s ? `data-status="${s}"` : ''}>${icon(ic)}<span>${l}</span></button>`).join('')}</div><button class="fab-btn ${fabOpen ? 'on' : ''}" data-action="fab" aria-label="Ajouter">${icon('plus')}</button>`;
+}
+
+const PAGES = { overview, platforms, bank, calendar, watch, trends, review };
 const NAV = [
   ['Analyse', [['overview', 'Vue d\'ensemble', 'Accueil', 'grid'], ['platforms', 'Plateformes', 'Plateformes', 'layers']]],
-  ['Stratégie', [['bank', 'Banque d\'idées', 'Idées', 'bulb'], ['calendar', 'Calendrier de contenu', 'Calendrier', 'cal'], ['trends', 'Sujets tendance', 'Tendances', 'flame']]]
+  ['Stratégie', [['bank', 'Banque d\'idées', 'Idées', 'bulb'], ['calendar', 'Calendrier de contenu', 'Calendrier', 'cal']]],
+  ['Veille', [['watch', 'Créatrices & inspirations', 'Veille', 'star'], ['trends', 'Sujets tendance', 'Tendances', 'flame'], ['review', 'Revue de la semaine', 'Revue', 'list']]]
 ];
 
 function render() {
@@ -356,9 +499,10 @@ function render() {
   const toggleIcon = isMobile() ? 'x' : sideCollapsed ? 'chevR' : 'chevL';
   const toggleTitle = isMobile() ? 'Fermer le menu' : sideCollapsed ? 'Agrandir le menu' : 'Réduire le menu';
   $('#side').innerHTML = `<div class="brand"><div class="avatar">M</div><div class="brand-t"><b>Miahso_</b><small>ASMR &amp; lifestyle</small></div><button class="side-toggle" data-action="side-toggle" title="${toggleTitle}" aria-label="${toggleTitle}">${icon(toggleIcon)}</button></div>` +
-    NAV.map(([g, list]) => `<div class="sec">${g}</div>` + list.map(([id, label, , ic]) => `<button class="nav-i ${page === id ? 'on' : ''}" data-action="nav" data-id="${id}" title="${esc(label)}">${icon(ic)}<span class="lbl">${label}</span>${id === 'bank' && nIdeas ? `<span class="badge">${nIdeas}</span>` : ''}</button>`).join('')).join('');
+    NAV.map(([g, list]) => `<div class="sec">${g}</div>` + list.map(([id, label, , ic]) => `<button class="nav-i ${page === id ? 'on' : ''}" data-action="nav" data-id="${id}" title="${esc(label)}">${icon(ic)}<span class="lbl">${label}</span>${badgeFor(id, nIdeas)}</button>`).join('')).join('');
   $('#topbar').innerHTML = `<button data-action="menu" aria-label="Ouvrir le menu">${icon('menu')}</button><b>Miahso_</b>`;
   $('#view').innerHTML = PAGES[page]();
+  $('#fab').innerHTML = fabHtml();
 }
 
 /* ---------- formulaires ---------- */
@@ -411,18 +555,21 @@ function accountForm(a) {
 
 function itemForm(it, prefill) {
   const isNew = !it;
-  it = it || Object.assign({ id: uid(), title: '', category: 'ASMR', accountId: '', status: 'idée', date: '', views: '', likes: '', comments: '' }, prefill || {});
+  it = it || Object.assign({ id: uid(), title: '', category: 'ASMR', accountId: '', status: 'idée', date: '', views: '', likes: '', comments: '', note: '', moved: today() }, prefill || {});
+  const before = it.status;
   form(isNew ? 'Nouveau contenu' : 'Modifier le contenu', [
     { name: 'title', label: 'Titre / sujet', type: 'text', required: true },
     { name: 'status', label: 'Étape', type: 'select', options: STATUS.map(s => [s, s[0].toUpperCase() + s.slice(1)]) },
     { name: 'date', label: 'Date prévue ou de publication', type: 'date' },
     { name: 'accountId', label: 'Compte', type: 'select', options: accOptions() },
     { name: 'category', label: 'Type de contenu', type: 'select', options: catOptions() },
+    { name: 'note', label: 'Notes (accroche, matériel, lien d\'inspiration…)', type: 'textarea' },
     { name: 'views', label: 'Vues (une fois publié)', type: 'number' },
     { name: 'likes', label: 'Likes', type: 'number' },
     { name: 'comments', label: 'Commentaires', type: 'number' }
   ], it, out => {
     if (out.status === 'publié' && !out.date) out.date = today();
+    if (out.status !== before) it.moved = today();
     Object.assign(it, out);
     if (isNew) state.items.push(it);
   }, isNew ? null : () => { state.items = state.items.filter(x => x !== it); });
@@ -430,20 +577,68 @@ function itemForm(it, prefill) {
 
 function trendForm(t) {
   const isNew = !t;
-  t = t || { id: uid(), topic: '', platform: 'TikTok', note: '', date: today() };
+  t = t || { id: uid(), topic: '', platform: 'TikTok', status: 'à tester', note: '', changed: '', date: today() };
   form(isNew ? 'Nouvelle tendance' : 'Modifier la tendance', [
     { name: 'topic', label: 'Sujet / son / format', type: 'text', required: true },
     { name: 'platform', label: 'Plateforme', type: 'select', options: TREND_PLATFORMS.map(p => [p, p]) },
-    { name: 'note', label: 'Note (pourquoi ça marche, comment le reprendre)', type: 'textarea' }
+    { name: 'status', label: 'Statut du test', type: 'select', options: TREND_STATUS.map(s => [s, s[0].toUpperCase() + s.slice(1)]) },
+    { name: 'note', label: 'Pourquoi ça marche, comment la reprendre', type: 'textarea' },
+    { name: 'changed', label: 'Ce que j\'ai changé / adapté (ta touche perso)', type: 'textarea' }
   ], t, out => { Object.assign(t, out); if (isNew) state.trends.unshift(t); }, isNew ? null : () => { state.trends = state.trends.filter(x => x !== t); });
+}
+
+function creatorForm(c) {
+  const isNew = !c;
+  c = c || { id: uid(), name: '', platform: 'TikTok', link: '', observe: '' };
+  form(isNew ? 'Nouvelle créatrice' : 'Modifier la créatrice', [
+    { name: 'name', label: 'Nom ou @pseudo', type: 'text', required: true },
+    { name: 'platform', label: 'Plateforme principale', type: 'select', options: TREND_PLATFORMS.map(p => [p, p]) },
+    { name: 'link', label: 'Lien du profil (facultatif)', type: 'url' },
+    { name: 'observe', label: 'Ce que j\'observe chez elle (formats, sons, rythme…)', type: 'textarea' }
+  ], c, out => { Object.assign(c, out); if (isNew) state.creators.push(c); },
+  isNew ? null : () => { state.creators = state.creators.filter(x => x !== c); state.inspirations.forEach(i => { if (i.creatorId === c.id) i.creatorId = ''; }); });
+}
+
+function inspForm(i) {
+  const isNew = !i;
+  i = i || { id: uid(), title: '', creatorId: '', category: 'ASMR', link: '', note: '', date: today(), used: false };
+  form(isNew ? 'Nouvelle inspiration' : 'Modifier l\'inspiration', [
+    { name: 'title', label: 'Ce qui t\'inspire (la vidéo, le format, l\'idée)', type: 'text', required: true },
+    { name: 'creatorId', label: 'Créatrice', type: 'select', options: [['', 'Autre / non listée']].concat(state.creators.map(c => [c.id, c.name])) },
+    { name: 'category', label: 'Type de contenu', type: 'select', options: catOptions() },
+    { name: 'link', label: 'Lien de la vidéo (facultatif)', type: 'url' },
+    { name: 'note', label: 'Ce que je retiens / comment je le reprends à ma façon', type: 'textarea' }
+  ], i, out => { Object.assign(i, out); if (isNew) state.inspirations.unshift(i); },
+  isNew ? null : () => { state.inspirations = state.inspirations.filter(x => x !== i); });
 }
 
 /* ---------- événements ---------- */
 document.addEventListener('click', e => {
   const t = e.target.closest('[data-action]');
-  if (!t) return;
+  if (!t) { if (fabOpen) { fabOpen = false; $('#fab').innerHTML = fabHtml(); } return; }
   const id = t.dataset.id;
+  if (t.dataset.action !== 'fab' && fabOpen) { fabOpen = false; $('#fab').innerHTML = fabHtml(); }
   switch (t.dataset.action) {
+    case 'open-link': return;
+    case 'fab': fabOpen = !fabOpen; $('#fab').innerHTML = fabHtml(); break;
+    case 'hide-start': state.hideStart = true; save(); render(); break;
+    case 'add-creator': creatorForm(); break;
+    case 'edit-creator': creatorForm(state.creators.find(x => x.id === id)); break;
+    case 'add-insp': inspForm(); break;
+    case 'edit-insp': inspForm(state.inspirations.find(x => x.id === id)); break;
+    case 'insp-idea': {
+      const i = state.inspirations.find(x => x.id === id), c = state.creators.find(x => x.id === i.creatorId);
+      const note = ['Inspiré de ' + (c ? c.name : 'une vidéo vue en ligne'), safeUrl(i.link), i.note].filter(Boolean).join('\n');
+      state.items.push({ id: uid(), title: i.title, category: i.category, accountId: '', status: 'idée', date: '', views: '', likes: '', comments: '', note, moved: today() });
+      i.used = true; save(); render(); toast('Ajouté à ta banque d\'idées'); break;
+    }
+    case 'trend-test': {
+      const tr = state.trends.find(x => x.id === id);
+      state.items.push({ id: uid(), title: 'Test : ' + tr.topic, category: 'Autre', accountId: '', status: 'idée', date: '', views: '', likes: '', comments: '', note: [tr.note, tr.changed].filter(Boolean).join('\n'), trendId: tr.id, moved: today() });
+      tr.status = 'en test'; save(); render(); toast('Ajouté à ta banque d\'idées : planifie-le quand tu veux'); break;
+    }
+    case 'trendfilter': trendFilter = id; render(); break;
+    case 'review-save': saveReview(); break;
     case 'nav': page = id; sideOpen = false; render(); window.scrollTo(0, 0); break;
     case 'menu': sideOpen = true; render(); break;
     case 'scrim': sideOpen = false; render(); break;
@@ -462,15 +657,11 @@ document.addEventListener('click', e => {
       const i = state.items.find(x => x.id === id);
       i.status = STATUS[Math.min(STATUS.length - 1, STATUS.indexOf(i.status) + 1)];
       if (i.status === 'publié' && !i.date) i.date = today();
+      i.moved = today();
       save(); render(); break;
     }
     case 'add-trend': trendForm(); break;
     case 'edit-trend': trendForm(state.trends.find(x => x.id === id)); break;
-    case 'trend-idea': {
-      const tr = state.trends.find(x => x.id === id);
-      state.items.push({ id: uid(), title: tr.topic, category: 'Autre', accountId: '', status: 'idée', date: '', views: '', likes: '', comments: '' });
-      save(); page = 'bank'; render(); break;
-    }
     case 'export': {
       const a = document.createElement('a');
       a.href = URL.createObjectURL(new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' }));
