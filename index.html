@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Miahso_ Dashboard</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#2f3e34">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Miahso_">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>Miahso_</h1>
+  <span id="sub">Tableau de bord</span>
+</header>
+<main id="view"></main>
+<nav id="tabs">
+  <button data-tab="home">Accueil</button>
+  <button data-tab="calendar">Calendrier</button>
+  <button data-tab="ideas">Idées</button>
+  <button data-tab="analysis">Analyse</button>
+</nav>
+<dialog id="dlg"></dialog>
+<input type="file" id="file" accept="application/json" hidden>
+<script src="app.js"></script>
+</body>
+</html>
