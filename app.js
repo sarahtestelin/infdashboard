@@ -1,7 +1,7 @@
 'use strict';
 /* Miahso_ Dashboard — V2 design (données stockées sur l'appareil, sans serveur) */
 const KEY = 'miahso-dashboard-v1';
-const CATS = ['ASMR', 'Lifestyle', 'Pop culture', 'Skincare / Maquillage', 'Humour', 'Autre'];
+let CATS = ['ASMR', 'Lifestyle', 'Pop culture', 'Skincare / Maquillage', 'Humour', 'Autre'];
 const STATUS = ['idée', 'écriture', 'à tourner', 'montage', 'planifié', 'publié'];
 const DAY_ABBR = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
 const DAY_LONG = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
@@ -247,8 +247,10 @@ function overview() {
   const byAcc = state.accounts.map(a => ({ n: cur.filter(i => i.accountId === a.id).length, a })).filter(x => x.n).map(x => `${x.n} ${esc(x.a.name.replace('YouTube · ', 'YT '))}`).join(' · ');
   const sub = cur.length ? `${who} a fait ${fmt(vC)} vues sur ${cur.length} post${cur.length > 1 ? 's' : ''} ces ${P} derniers jours. Voici ce qui marche et quoi faire ensuite.`
     : 'Ajoute tes posts publiés et leurs vues dans le calendrier pour voir apparaître tes statistiques.';
+  const vg = Number((state.settings || {}).viewsGoal) || 0, vgP = vg * P / 30;
+  const vGoalTxt = vg ? `<br><small>Objectif : ${fmt(Math.round(vgP))} vues · ${Math.min(999, Math.round(vC / vgP * 100))} %</small>` : '';
   const tiles = [
-    tile('t-pink', `Vues, ${P} derniers jours`, 'eye', fmt(vC), chipPct(vC, vP), vP ? `vs ${fmt(vP)} les ${P} jours d'avant` : 'Aucune période précédente à comparer'),
+    tile('t-pink', `Vues, ${P} derniers jours`, 'eye', fmt(vC), chipPct(vC, vP), (vP ? `vs ${fmt(vP)} les ${P} jours d'avant` : 'Aucune période précédente à comparer') + vGoalTxt),
     tile('t-sage', 'Engagement moyen', 'heart', eC == null ? '—' : eC.toFixed(1).replace('.', ',') + ' %', eC != null && eP != null ? `<span class="chip ${eC >= eP ? 'up' : 'down'}">${eC >= eP ? '↑' : '↓'} ${Math.abs(eC - eP).toFixed(1).replace('.', ',')} pts</span>` : '', 'Likes + commentaires / vues'),
     tile('t-beige', `Abonnés gagnés, ${P} j`, 'users', (nf.tot > 0 ? '+' : '') + fmt(nf.tot), '', nf.parts.length ? esc(nf.parts.join(' · ')) : 'Mets à jour tes abonnés chaque semaine'),
     tile('t-lime', `Posts publiés, ${P} j`, 'video', fmt(cur.length), '', byAcc || 'Aucun post publié sur la période')
@@ -510,6 +512,7 @@ const NAV = [
 ];
 
 function render() {
+  if (state.settings && Array.isArray(state.settings.cats) && state.settings.cats.length) CATS = state.settings.cats;
   try { localStorage.setItem('miahso-page', page); } catch (e) { /* ignore */ }
   const nIdeas = state.items.filter(i => i.status === 'idée').length;
   document.body.classList.toggle('collapsed', sideCollapsed);

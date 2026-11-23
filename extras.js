@@ -1,6 +1,6 @@
 'use strict';
 /* Miahso_ Dashboard — extras : synchro Supabase, YouTube, import CSV, réglages */
-const APP_VERSION = '9';
+const APP_VERSION = '10';
 const SESS = 'miahso-session', CFGK = 'miahso-cfg', YTLAST = 'miahso-yt-last', SYNCED = 'miahso-synced';
 const lsGet = k => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
 const lsSet = (k, v) => { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* ignore */ } };
@@ -317,6 +317,36 @@ function startCsv(file) {
   r.readAsText(file);
 }
 
+/* =====================  PAGE OBJECTIFS & COMPTES (admin)  ===================== */
+const PALETTE = ['#2b3a2f', '#d98aa0', '#c9a96e', '#8fb08a', '#7b9acc', '#b58ad9', '#e0925a', '#5fa8a3'];
+function goalsPage() {
+  const st = state.settings || {};
+  const accCards = state.accounts.map(a => {
+    const id = esc(a.id);
+    return `<section class="card"><h3>${accDot(a.id)} ${esc(a.name)}</h3>
+      <div class="fgrid">
+        <label>Nom<input id="g-n-${id}" type="text" value="${esc(a.name)}"></label>
+        <label>Abonnés actuels<input id="g-f-${id}" type="number" min="0" value="${esc(a.followers)}"></label>
+        <label>Objectif d'abonnés<input id="g-g-${id}" type="number" min="0" value="${esc(a.goal)}"></label>
+        <label>Posts visés par semaine<input id="g-w-${id}" type="number" min="0" value="${esc(a.weekly == null ? '' : a.weekly)}"></label>
+        <label>Couleur<input id="g-c-${id}" type="color" value="${esc(a.color || '#2b3a2f')}"></label>
+        ${isYT(a) ? `<label>Chaîne YouTube (@nom ou lien)<input id="g-y-${id}" type="text" placeholder="@mon_pseudo" value="${esc(a.ytHandle || '')}"></label>` : ''}
+      </div>
+      <div class="actions" style="justify-content:flex-start"><button class="btn" data-action="acc-save" data-id="${id}">Enregistrer</button><button class="btn danger sm" data-action="acc-del" data-id="${id}">Supprimer ce compte</button></div>
+    </section>`;
+  }).join('');
+  const cats = (Array.isArray(st.cats) && st.cats.length ? st.cats : CATS).join('\n');
+  return head('Objectifs & comptes', 'Règle tes objectifs, tes rythmes de publication, tes comptes et tes catégories. Tout est modifiable.', `<button class="btn" data-action="acc-add">${icon('plus')} Ajouter un compte</button>`) +
+    card2('Objectif global', `<p class="muted">Un objectif de vues sur 30 jours pour tous tes comptes. Il s'affiche sur la Vue d'ensemble (laisse vide pour le retirer).</p>
+      <label>Vues visées sur 30 jours<input id="g-views" type="number" min="0" placeholder="ex. 50000" value="${esc(st.viewsGoal || '')}"></label>
+      <div class="actions" style="justify-content:flex-start"><button class="btn" data-action="goals-save">Enregistrer</button></div>`) +
+    `<h2 class="sub-h">Mes comptes</h2>` + accCards +
+    card2('Catégories de contenu', `<p class="muted">Une catégorie par ligne. Elles servent à classer tes posts et à repérer ce qui marche.</p>
+      <label>Catégories<textarea id="g-cats" rows="7">${esc(cats)}</textarea></label>
+      <div class="actions" style="justify-content:flex-start"><button class="btn" data-action="cats-save">Enregistrer</button><button class="btn ghost" data-action="cats-reset">Remettre par défaut</button></div>`);
+}
+const card2 = (t, body) => `<section class="card"><h3>${t}</h3>${body}</section>`;
+
 /* =====================  PAGE RÉGLAGES  ===================== */
 let deferredPrompt = null;
 window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredPrompt = e; if (page === 'settings') render(); });
@@ -392,6 +422,57 @@ function extraAction(a, el) {
       state.accounts.filter(isYT).forEach(x => { const v = val('yt-h-' + x.id); if (v) x.ytHandle = v; });
       save(); ytSyncAll(true); break;
     }
+    case 'acc-save': {
+      const id = el.dataset.id, x = acc(id); if (!x) break;
+      const num = k => { const v = val(k); return v === '' ? 0 : Math.max(0, Number(v) || 0); };
+      const f = num('g-f-' + id);
+      if (f !== x.followers) {
+        state.history = state.history.filter(h => !(h.accountId === id && h.date === today()));
+        state.history.push({ date: today(), accountId: id, followers: f });
+      }
+      Object.assign(x, { name: val('g-n-' + id) || x.name, followers: f, goal: num('g-g-' + id), weekly: num('g-w-' + id), color: (document.getElementById('g-c-' + id) || {}).value || x.color });
+      if (isYT(x) && document.getElementById('g-y-' + id)) x.ytHandle = val('g-y-' + id);
+      save(); render(); toast('Compte enregistré'); break;
+    }
+    case 'acc-del': {
+      const id = el.dataset.id, x = acc(id); if (!x) break;
+      if (state.accounts.length <= 1) { toast('Garde au moins un compte.'); break; }
+      const n = state.items.filter(i => i.accountId === id).length;
+      if (!confirm(`Supprimer « ${x.name} »${n ? ` et ses ${n} posts/idées` : ''} ? Cette action est définitive.`)) break;
+      state.accounts = state.accounts.filter(c => c.id !== id);
+      state.items = state.items.filter(i => i.accountId !== id);
+      state.history = state.history.filter(h => h.accountId !== id);
+      save(); render(); toast('Compte supprimé'); break;
+    }
+    case 'acc-add':
+      form('Nouveau compte', [
+        { name: 'name', label: 'Nom (ex. Facebook, Pinterest…)', type: 'text', required: true },
+        { name: 'followers', label: 'Abonnés actuels', type: 'number' },
+        { name: 'goal', label: "Objectif d'abonnés", type: 'number' },
+        { name: 'weekly', label: 'Posts visés par semaine', type: 'number' }
+      ], { name: '', followers: 0, goal: 1000, weekly: 2 }, out => {
+        const used = state.accounts.map(c => c.color), color = PALETTE.find(c => !used.includes(c)) || PALETTE[state.accounts.length % PALETTE.length];
+        const id = uid();
+        state.accounts.push({ id, name: out.name, followers: out.followers || 0, goal: out.goal || 1000, weekly: out.weekly || 0, color });
+        if (out.followers) state.history.push({ date: today(), accountId: id, followers: out.followers });
+      });
+      break;
+    case 'goals-save': {
+      const v = val('g-views');
+      state.settings = Object.assign({}, state.settings, { viewsGoal: v === '' ? 0 : Math.max(0, Number(v) || 0) });
+      save(); render(); toast('Objectif enregistré'); break;
+    }
+    case 'cats-save': {
+      const list = [...new Set(val('g-cats').split('\n').map(x => x.trim()).filter(Boolean))];
+      if (!list.length) { toast('Ajoute au moins une catégorie.'); break; }
+      state.settings = Object.assign({}, state.settings, { cats: list });
+      save(); render(); toast('Catégories enregistrées'); break;
+    }
+    case 'cats-reset': {
+      const s2 = Object.assign({}, state.settings); delete s2.cats; state.settings = s2;
+      CATS = ['ASMR', 'Lifestyle', 'Pop culture', 'Skincare / Maquillage', 'Humour', 'Autre'];
+      save(); render(); toast('Catégories par défaut'); break;
+    }
     case 'csv-pick': document.getElementById('csvFile').click(); break;
     case 'csv-clear': {
       const n = state.items.filter(i => i.source === 'csv').length;
@@ -413,7 +494,9 @@ function extraAction(a, el) {
 
 /* =====================  DÉMARRAGE  ===================== */
 ICONS.gear = '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/>';
-NAV.push(['Compte', [['settings', 'Réglages & synchro', 'Réglages', 'gear']]]);
+ICONS.target = '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>';
+NAV.push(['Compte', [['goals', 'Objectifs & comptes', 'Objectifs', 'target'], ['settings', 'Réglages & synchro', 'Réglages', 'gear']]]);
+PAGES.goals = goalsPage;
 PAGES.settings = settings;
 document.getElementById('csvFile').addEventListener('change', e => { const f = e.target.files[0]; if (f) startCsv(f); e.target.value = ''; });
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') syncNow(); });
