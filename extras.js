@@ -213,30 +213,59 @@ function parseNum(s) {
   const n = parseFloat(s);
   return isNaN(n) ? 0 : Math.round(n * mult);
 }
-function parseDate(s) {
+const MOIS = [['janv', 1], ['jan', 1], ['fevr', 2], ['fev', 2], ['feb', 2], ['mars', 3], ['mar', 3], ['avr', 4], ['apr', 4], ['mai', 5], ['may', 5], ['juin', 6], ['jun', 6], ['juil', 7], ['jul', 7], ['aout', 8], ['aug', 8], ['sept', 9], ['sep', 9], ['oct', 10], ['nov', 11], ['dec', 12]];
+const moisNum = w => { w = String(w).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f.]/g, ''); const f = MOIS.find(x => w.startsWith(x[0])); return f ? f[1] : 0; };
+const ymd = (y, mo, d) => (mo < 1 || mo > 12 || d < 1 || d > 31) ? '' : `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+/* Ordre des dates 12/05/2026 : « dmy » (France) ou « mdy » (export Instagram en anglais), deviné d'après les valeurs. */
+function detectOrder(values) {
+  let dmy = 0, mdy = 0;
+  values.forEach(v => { const m = String(v || '').trim().match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-]\d{2,4}/); if (m) { if (+m[1] > 12) dmy++; if (+m[2] > 12) mdy++; } });
+  return mdy > dmy ? 'mdy' : 'dmy';
+}
+function parseDate(s, order) {
   s = String(s || '').trim();
   let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  if (m) return ymd(m[1], +m[2], +m[3]);
   m = s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})/);
   if (m) {
     let d = +m[1], mo = +m[2], y = +m[3];
+    if (order === 'mdy') { const t = d; d = mo; mo = t; }
     if (y < 100) y += 2000;
     if (mo > 12 && d <= 12) { const t = d; d = mo; mo = t; }
-    if (mo < 1 || mo > 12 || d < 1 || d > 31) return '';
-    return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    return ymd(y, mo, d);
+  }
+  /* « 23 novembre », « 23 novembre 2026 », « nov. 23, 2026 » (sans année : l'année en cours, ou la précédente si la date serait dans le futur) */
+  m = s.match(/^(\d{1,2})(?:er)?\s+([A-Za-zÀ-ÿ.]{3,})\s*,?\s*(\d{4})?/);
+  let d2, mo2, y2;
+  if (m) { d2 = +m[1]; mo2 = moisNum(m[2]); y2 = m[3] ? +m[3] : 0; }
+  else { m = s.match(/^([A-Za-zÀ-ÿ.]{3,})\s+(\d{1,2})\s*,?\s*(\d{4})?/); if (m) { mo2 = moisNum(m[1]); d2 = +m[2]; y2 = m[3] ? +m[3] : 0; } }
+  if (m && mo2) {
+    if (!y2) { const now = new Date(); y2 = now.getFullYear(); if (new Date(y2, mo2 - 1, d2) > new Date(now.getTime() + 864e5)) y2--; }
+    return ymd(y2, mo2, d2);
   }
   const t = Date.parse(s);
   return isNaN(t) ? '' : iso(new Date(t));
 }
 const hash = str => { let h = 5381; for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0; return (h >>> 0).toString(36); };
-function guessColumns(head) {
+function guessColumns(head, data) {
+  data = data || [];
   const used = new Set(), find = (re, not) => { const i = head.findIndex((h, k) => !used.has(k) && re.test(h) && !(not && not.test(h))); if (i >= 0) used.add(i); return i; };
   const g = {};
-  g.date = find(/date|publi|posted|heure|time/i);
-  g.views = find(/vues|views|lectures|plays|impressions|reach|port[ée]e/i, /moyen|average|avg|dur[ée]e|duration|watch|temps|%/i);
+  const sample = i => data.slice(0, 40).map(r => String(r[i] == null ? '' : r[i]).trim()).filter(Boolean);
+  const dateLike = v => /\d{1,4}[\/.\-]\d{1,2}[\/.\-]\d{1,4}/.test(v) || /^\d{1,2}(er)?\s+[A-Za-zÀ-ÿ.]{3,}/.test(v) || /^[A-Za-zÀ-ÿ.]{3,}\s+\d{1,2}/.test(v);
+  const order = i => detectOrder(sample(i));
+  const dateScore = i => { const s = sample(i); return s.length ? s.filter(v => dateLike(v) && parseDate(v, order(i))).length / s.length : 0; };
+  const prio = i => /heure de publi|date de publi|published|posted|post time|^time$/i.test(head[i]) ? 0 : /date|heure|time|publi/i.test(head[i]) ? 1 : 2;
+  const cands = head.map((h, i) => i).filter(i => dateScore(i) >= 0.6).sort((a, b) => prio(a) - prio(b) || a - b);
+  g.date = cands.length ? cands[0] : -1;
+  if (g.date >= 0) used.add(g.date); else g.date = find(/^date$|heure|posted|time/i, /identifiant|\bid\b/i);
+  g.views = find(/^(vues|views|video views|total views|lectures|plays)$/i);
+  if (g.views < 0) g.views = find(/vues|views|lectures|plays|impressions|reach|port[ée]e/i, /moyen|average|avg|dur[ée]e|duration|watch|temps|%/i);
   g.likes = find(/j.?aime|likes|r[ée]actions/i);
-  g.comments = find(/comment/i);
-  g.title = find(/titre|title|description|caption|l[ée]gende|texte|vid[ée]o|post/i);
+  g.comments = find(/^commentaires?$|^comments?$|total comments/i);
+  if (g.comments < 0) g.comments = find(/comment/i, /donn[ée]es|data/i);
+  g.title = find(/^description$|titre|title|caption|l[ée]gende|texte/i);
+  if (g.title < 0) g.title = find(/vid[ée]o|post/i, /identifiant|\bid\b|permalien|url|lien|type|dur[ée]e/i);
   return g;
 }
 function startCsv(file) {
@@ -245,13 +274,17 @@ function startCsv(file) {
     try {
       const rows = parseCSV(String(r.result));
       if (rows.length < 2) throw new Error('vide');
-      const head = rows[0].map(h => h.trim()), g = guessColumns(head);
+      const head = rows[0].map(h => h.trim()), data = rows.slice(1), g = guessColumns(head, data);
       const opts = [['-1', '— aucune —']].concat(head.map((h, i) => [String(i), h || 'Colonne ' + (i + 1)]));
       const guess = k => String(g[k]);
-      const preview = rows.slice(1, 4).map(x => x.slice(0, 4).join(' | ')).join('\n');
+      const cell = (x, k) => (g[k] >= 0 ? String(x[g[k]] || '').replace(/\s+/g, ' ').trim() : '');
+      const preview = data.slice(0, 4).map(x => [cell(x, 'date'), cell(x, 'title').slice(0, 45), cell(x, 'views') + ' vues'].join(' | ')).join('\n');
+      const profCol = head.findIndex(h => /nom de profil|nom d.utilisateur|username|profile name/i.test(h));
+      let mainProfile = '';
+      if (profCol >= 0) { const cnt = {}; data.forEach(x => { const v = (x[profCol] || '').trim(); if (v) cnt[v] = (cnt[v] || 0) + 1; }); mainProfile = Object.keys(cnt).sort((p, q) => cnt[q] - cnt[p])[0] || ''; }
       const accs = state.accounts.map(a => [a.id, a.name]);
       const defAcc = (state.accounts.find(a => /tiktok/i.test(a.name + file.name)) || state.accounts[0]).id;
-      form(`Importer ${rows.length - 1} lignes`, [
+      form(`Importer ${data.length} lignes`, [
         { name: 'acc', label: 'Compte concerné', type: 'select', options: accs },
         { name: 'title', label: 'Colonne du titre / description', type: 'select', options: opts },
         { name: 'date', label: 'Colonne de la date de publication', type: 'select', options: opts },
@@ -261,18 +294,20 @@ function startCsv(file) {
         { name: 'preview', label: 'Aperçu des premières lignes (lecture seule)', type: 'textarea' }
       ], { acc: defAcc, title: guess('title'), date: guess('date'), views: guess('views'), likes: guess('likes'), comments: guess('comments'), preview }, out => {
         const col = k => Number(out[k]);
-        let added = 0, updated = 0, skipped = 0;
-        rows.slice(1).forEach(row => {
-          const date = col('date') >= 0 ? parseDate(row[col('date')]) : '';
+        let added = 0, updated = 0, skipped = 0, others = 0;
+        const order = col('date') >= 0 ? detectOrder(data.map(x => x[col('date')])) : 'dmy';
+        data.forEach(row => {
+          if (mainProfile && (row[profCol] || '').trim() !== mainProfile) { others++; return; }
+          const date = col('date') >= 0 ? parseDate(row[col('date')], order) : '';
           if (!date) { skipped++; return; }
-          const title = (col('title') >= 0 && (row[col('title')] || '').trim()) || 'Sans titre';
+          const title = (col('title') >= 0 && (row[col('title')] || '').replace(/\s+/g, ' ').trim()) || 'Sans titre';
           const id = 'csv-' + hash(out.acc + '|' + date + '|' + title.slice(0, 80));
           const stats = { views: col('views') >= 0 ? parseNum(row[col('views')]) : '', likes: col('likes') >= 0 ? parseNum(row[col('likes')]) : '', comments: col('comments') >= 0 ? parseNum(row[col('comments')]) : '' };
           const it = state.items.find(x => x.id === id);
           if (it) { Object.assign(it, stats); updated++; }
           else { state.items.push(Object.assign({ id, title: title.slice(0, 140), category: 'Autre', accountId: out.acc, status: 'publié', date, note: '', moved: today(), source: 'csv' }, stats)); added++; }
         });
-        setTimeout(() => toast(`Import : ${added} nouveau${added > 1 ? 'x' : ''}, ${updated} mis à jour, ${skipped} ignoré${skipped > 1 ? 's' : ''}`), 50);
+        setTimeout(() => toast(`Import : ${added} nouveau${added > 1 ? 'x' : ''}, ${updated} mis à jour, ${skipped} ignoré${skipped > 1 ? 's' : ''}${others ? ` (+ ${others} d'un autre compte)` : ''}`), 50);
       });
     } catch (e) { toast('Fichier CSV illisible.'); }
   };
