@@ -1,4 +1,4 @@
-const CACHE = 'miahso-v8';
+const CACHE = 'miahso-v9';
 const ASSETS = ['./', 'index.html', 'style.css', 'config.js', 'app.js', 'extras.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
@@ -20,6 +20,6 @@ self.addEventListener('fetch', e => {
       const copy = res.clone();
       caches.open(CACHE).then(c => c.put(req, copy));
       return res;
-    }).catch(() => caches.match(req).then(r => r || caches.match('./')))
+    }).catch(() => caches.match(req, { ignoreSearch: true }).then(r => r || caches.match('./')))
   );
 });
