@@ -1,5 +1,6 @@
 'use strict';
 /* Miahso_ Dashboard — extras : synchro Supabase, YouTube, import CSV, réglages */
+const APP_VERSION = '8';
 const SESS = 'miahso-session', CFGK = 'miahso-cfg', YTLAST = 'miahso-yt-last', SYNCED = 'miahso-synced';
 const lsGet = k => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
 const lsSet = (k, v) => { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* ignore */ } };
@@ -283,7 +284,9 @@ function startCsv(file) {
       let mainProfile = '';
       if (profCol >= 0) { const cnt = {}; data.forEach(x => { const v = (x[profCol] || '').trim(); if (v) cnt[v] = (cnt[v] || 0) + 1; }); mainProfile = Object.keys(cnt).sort((p, q) => cnt[q] - cnt[p])[0] || ''; }
       const accs = state.accounts.map(a => [a.id, a.name]);
-      const defAcc = (state.accounts.find(a => /tiktok/i.test(a.name + file.name)) || state.accounts[0]).id;
+      const txt = data.slice(0, 5).map(x => x.join(' ')).join(' ') + ' ' + head.join(' ') + ' ' + file.name;
+      const kind = /instagram\.com|reel ig|carrousel ig|instagram/i.test(txt) ? /insta/i : /tiktok\.com|tiktok/i.test(txt) ? /tiktok/i : /youtube|youtu\.be/i.test(txt) ? /youtube/i : null;
+      const defAcc = ((kind && state.accounts.find(a => kind.test(a.name))) || state.accounts[0]).id;
       form(`Importer ${data.length} lignes`, [
         { name: 'acc', label: 'Compte concerné', type: 'select', options: accs },
         { name: 'title', label: 'Colonne du titre / description', type: 'select', options: opts },
@@ -340,8 +343,9 @@ function settings() {
     <label>Clé API YouTube Data v3<input id="yt-key" type="text" placeholder="AIza…" value="${esc(st.ytKey || '')}"></label>${ytAccs}
     <div class="actions" style="justify-content:flex-start"><button class="btn" data-action="yt-save">Enregistrer</button><button class="btn ghost" data-action="yt-sync">${YT.busy ? 'En cours…' : 'Synchroniser maintenant'}</button></div>
     ${YT.msg ? `<pre class="log">${esc(YT.msg)}</pre>` : ''}`;
-  const csvBody = `<p class="muted">TikTok et Instagram ne se connectent pas à l'app : exporte tes statistiques en CSV (TikTok Studio > Analyses > Télécharger les données ; Meta Business Suite > Statistiques > Exporter), puis importe le fichier ici. Les colonnes sont reconnues automatiquement et tu peux les corriger avant de valider. Réimporter le même fichier met à jour les chiffres sans doublon.</p>
-    <div class="actions" style="justify-content:flex-start"><button class="btn" data-action="csv-pick">${icon('up')} Choisir un fichier CSV</button></div>`;
+  const csvBody = `<p class="muted">TikTok et Instagram ne se connectent pas à l'app : exporte tes statistiques en CSV (TikTok Studio > Analytics > Contenu > Télécharger les données ; Meta Business Suite > Insights > Contenu > Exporter les données), puis importe le fichier ici. Les colonnes sont reconnues automatiquement et tu peux les corriger avant de valider. Réimporter le même fichier met à jour les chiffres sans doublon.</p>
+    <div class="actions" style="justify-content:flex-start"><button class="btn" data-action="csv-pick">${icon('up')} Choisir un fichier CSV</button><button class="btn ghost sm" data-action="csv-clear">Effacer les imports CSV</button></div>
+    <p class="muted"><small>Pense à bien choisir le compte (TikTok, Instagram…) dans la fenêtre d'import. « Effacer les imports CSV » supprime seulement les posts venus d'un CSV, pour pouvoir les réimporter proprement.</small></p>`;
   const installBody = `${deferredPrompt ? `<div class="actions" style="justify-content:flex-start;margin:0 0 10px"><button class="btn" data-action="install-app">Installer l'app</button></div>` : ''}
     <div class="inst"><div><b>iPhone / iPad</b><p>Ouvre le lien dans <b>Safari</b> > Partager > « Sur l'écran d'accueil ».</p></div>
     <div><b>Android</b><p>Chrome > menu ⋮ > « Installer l'application ».</p></div>
@@ -350,8 +354,9 @@ function settings() {
   return head('Réglages', 'Synchro entre appareils, YouTube automatique, import de tes stats et installation.', '') +
     card('Synchronisation entre appareils', syncBody) + card('YouTube automatique', ytBody) + card('Importer des stats TikTok / Instagram (CSV)', csvBody) +
     card('Installer l\'application', installBody) +
+    card('Mise à jour de l\'app', `<p class="muted">Version ${APP_VERSION}. Si une nouveauté n'apparaît pas, recharge la dernière version : tes données ne sont pas touchées.</p><div class="actions" style="justify-content:flex-start"><button class="btn ghost" data-action="app-update">Recharger la dernière version</button></div>`) +
     card('Sauvegarde', `<p class="muted">Une copie de tes données au format JSON, à garder en lieu sûr.</p><div class="actions" style="justify-content:flex-start"><button class="btn ghost" data-action="export">Exporter</button><button class="btn ghost" data-action="import">Importer</button></div>`) +
-    `<p class="muted" style="text-align:center">Miahso_ Dashboard · version finale</p>`;
+    `<p class="muted" style="text-align:center">Miahso_ Dashboard · version ${APP_VERSION}</p>`;
 }
 
 function extraAction(a, el) {
@@ -388,6 +393,18 @@ function extraAction(a, el) {
       save(); ytSyncAll(true); break;
     }
     case 'csv-pick': document.getElementById('csvFile').click(); break;
+    case 'csv-clear': {
+      const n = state.items.filter(i => i.source === 'csv').length;
+      if (!n) { toast('Aucun import CSV à effacer.'); break; }
+      if (!confirm(`Supprimer les ${n} posts importés depuis un CSV ? Tes autres posts (YouTube, ajoutés à la main) restent.`)) break;
+      state.items = state.items.filter(i => i.source !== 'csv'); save(); render(); toast(`${n} posts effacés. Tu peux réimporter tes CSV.`); break;
+    }
+    case 'app-update':
+      (async () => {
+        try { (await navigator.serviceWorker.getRegistrations()).forEach(r => r.unregister()); (await caches.keys()).forEach(k => caches.delete(k)); } catch (e) { /* ignore */ }
+        location.reload();
+      })();
+      break;
     case 'install-app':
       if (deferredPrompt) { deferredPrompt.prompt(); deferredPrompt.userChoice.finally(() => { deferredPrompt = null; render(); }); }
       break;
