@@ -1,6 +1,6 @@
 'use strict';
 /* Miahso_ Dashboard — extras : synchro Supabase, YouTube, import CSV, réglages */
-const APP_VERSION = '11';
+const APP_VERSION = '12';
 const SESS = 'miahso-session', CFGK = 'miahso-cfg', YTLAST = 'miahso-yt-last', SYNCED = 'miahso-synced';
 const lsGet = k => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
 const lsSet = (k, v) => { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* ignore */ } };
@@ -84,6 +84,7 @@ async function syncNow(manual) {
   if (Sync.dirty) afterSave();
 }
 function afterSave() {
+  gcalAuto();
   if (!sessionOk()) return;
   Sync.dirty = true;
   if (Sync.busy) return;
@@ -318,6 +319,102 @@ function startCsv(file) {
   r.readAsText(file);
 }
 
+/* =====================  GOOGLE AGENDA  ===================== */
+const GC = { token: '', exp: 0, busy: false, msg: '', timer: null };
+const GSCOPE = 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.calendarlist.readonly';
+const gset = () => state.settings || {};
+const norm = t => String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+function loadGIS() {
+  return new Promise((res, rej) => {
+    if (window.google && google.accounts && google.accounts.oauth2) return res();
+    const old = document.getElementById('gis-js');
+    if (old) { old.addEventListener('load', () => res()); return; }
+    const sc = document.createElement('script');
+    sc.id = 'gis-js'; sc.src = 'https://accounts.google.com/gsi/client'; sc.async = true;
+    sc.onload = () => res(); sc.onerror = () => rej(new Error('Impossible de charger Google (connexion ?).'));
+    document.head.appendChild(sc);
+  });
+}
+function gToken(interactive) {
+  if (GC.token && Date.now() < GC.exp - 60000) return Promise.resolve(GC.token);
+  if (!interactive) return Promise.reject(new Error('non connecté'));
+  const cid = gset().gClientId;
+  if (!cid) return Promise.reject(new Error("Colle d'abord ton identifiant client Google."));
+  return loadGIS().then(() => new Promise((res, rej) => {
+    const c = google.accounts.oauth2.initTokenClient({
+      client_id: cid, scope: GSCOPE,
+      callback: r => { if (r.error) rej(new Error(r.error_description || r.error)); else { GC.token = r.access_token; GC.exp = Date.now() + (Number(r.expires_in) || 3600) * 1000; res(GC.token); } },
+      error_callback: e => rej(new Error(e && e.type === 'popup_closed' ? 'Fenêtre Google fermée avant la fin.' : 'Connexion Google impossible (fenêtre bloquée ?).'))
+    });
+    c.requestAccessToken({ prompt: '' });
+  }));
+}
+async function gApi(path, method, body) {
+  const r = await fetch('https://www.googleapis.com/calendar/v3' + path, { method: method || 'GET', headers: Object.assign({ Authorization: 'Bearer ' + GC.token }, body ? { 'Content-Type': 'application/json' } : {}), body: body ? JSON.stringify(body) : undefined });
+  if (r.status === 401) { GC.token = ''; throw new Error('Session Google expirée : reconnecte-toi.'); }
+  if (r.status === 204) return null;
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error((j.error && j.error.message) || ('Erreur Google ' + r.status));
+  return j;
+}
+async function gFindCal() {
+  const want = norm(gset().gcalName || 'réseaux');
+  const list = (await gApi('/users/me/calendarList?maxResults=250')).items || [];
+  const hit = list.find(c => norm(c.summary) === want) || list.find(c => norm(c.summary).includes(want));
+  if (!hit) throw new Error(`Calendrier « ${gset().gcalName || 'réseaux'} » introuvable. Calendriers vus : ${list.map(c => c.summary).join(', ') || 'aucun'}.`);
+  return hit.id;
+}
+const gEligible = it => it.date && !it.source && it.status !== 'idée' && (it.status !== 'publié' || it.date >= addDays(today(), -14));
+function gEvent(it) {
+  const a = acc(it.accountId), plat = a ? a.name.replace('YouTube · ', 'YT ') : '';
+  return {
+    summary: ((it.status === 'publié' ? '✅ ' : '') + (plat ? '[' + plat + '] ' : '') + it.title).slice(0, 200),
+    description: `Étape : ${it.status}\nCatégorie : ${it.category || ''}${it.note ? '\n' + it.note : ''}\n\n— Miahso_ Dashboard`,
+    start: { date: it.date }, end: { date: addDays(it.date, 1) },
+    extendedProperties: { private: { miahso: '1', itemId: it.id } }
+  };
+}
+async function syncGoogle(interactive) {
+  if (GC.busy) return '';
+  GC.busy = true;
+  try {
+    await gToken(interactive);
+    const cal = encodeURIComponent(await gFindCal());
+    const have = {}; let tok = '';
+    do {
+      const j = await gApi(`/calendars/${cal}/events?privateExtendedProperty=${encodeURIComponent('miahso=1')}&maxResults=250&showDeleted=false${tok ? '&pageToken=' + tok : ''}`);
+      (j.items || []).forEach(e => { const k = e.extendedProperties && e.extendedProperties.private && e.extendedProperties.private.itemId; if (k) have[k] = e; });
+      tok = j.nextPageToken || '';
+    } while (tok);
+    let created = 0, updated = 0, removed = 0, pulled = 0, changed = false;
+    const seen = new Set();
+    for (const it of state.items.filter(gEligible)) {
+      seen.add(it.id);
+      const ex = have[it.id], want = gEvent(it);
+      if (!ex) { const c = await gApi(`/calendars/${cal}/events`, 'POST', want); it.gsync = it.date; created++; changed = true; continue; }
+      const gDate = ex.start && ex.start.date;
+      if (gDate && gDate !== it.date && it.gsync === it.date) {
+        it.date = gDate; it.gsync = gDate; pulled++; changed = true; /* déplacé dans Google : on suit */
+        const w2 = gEvent(it); if (w2.summary !== ex.summary || (ex.description || '') !== w2.description) { await gApi(`/calendars/${cal}/events/${ex.id}`, 'PATCH', w2); }
+        continue;
+      }
+      if (ex.summary !== want.summary || gDate !== want.start.date || (ex.description || '') !== want.description) { await gApi(`/calendars/${cal}/events/${ex.id}`, 'PATCH', want); updated++; }
+      if (it.gsync !== it.date) { it.gsync = it.date; changed = true; }
+    }
+    for (const k of Object.keys(have)) if (!seen.has(k)) { await gApi(`/calendars/${cal}/events/${have[k].id}`, 'DELETE'); removed++; }
+    if (changed) { save(); if (page === 'calendar') render(); }
+    const when = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    GC.msg = `Synchro à ${when} : ${created} créé${created > 1 ? 's' : ''}, ${updated} mis à jour, ${removed} supprimé${removed > 1 ? 's' : ''}${pulled ? `, ${pulled} déplacé${pulled > 1 ? 's' : ''} depuis Google` : ''}.`;
+    return GC.msg;
+  } finally { GC.busy = false; }
+}
+function gcalAuto() {
+  if (!gset().gClientId || !GC.token || Date.now() > GC.exp - 60000) return;
+  clearTimeout(GC.timer);
+  GC.timer = setTimeout(() => { syncGoogle(false).then(() => { if (page === 'settings') render(); }).catch(() => { /* silencieux */ }); }, 4000);
+}
+const gcalLabel = () => (GC.token && Date.now() < GC.exp) ? 'Connecté à Google pour cette session (la synchro se fait toute seule à chaque modification).' : 'Pas encore connecté sur cet appareil : clique sur « Se connecter et synchroniser ».';
+
 /* =====================  PAGE OBJECTIFS & COMPTES (admin)  ===================== */
 const PALETTE = ['#2b3a2f', '#d98aa0', '#c9a96e', '#8fb08a', '#7b9acc', '#b58ad9', '#e0925a', '#5fa8a3'];
 function goalsPage() {
@@ -382,9 +479,21 @@ function settings() {
     <div class="inst"><div><b>iPhone / iPad</b><p>Ouvre le lien dans <b>Safari</b> > Partager > « Sur l'écran d'accueil ».</p></div>
     <div><b>Android</b><p>Chrome > menu ⋮ > « Installer l'application ».</p></div>
     <div><b>Ordinateur</b><p>Chrome ou Edge > icône d'installation dans la barre d'adresse.</p></div></div>`;
+  const gBody = `<p class="muted">Tes contenus planifiés (écriture, tournage, montage, planifié) apparaissent dans ton agenda Google, en journée entière. Si tu déplaces un événement dans Google, la date change aussi ici. Les posts publiés restent 14 jours avec un ✅.</p>
+    <details class="howto"><summary>Comment obtenir l'identifiant client Google (5 minutes, une seule fois)</summary><ol>
+      <li>Va sur <b>console.cloud.google.com</b>, ouvre ton projet <b>miahso</b> (celui de la clé YouTube).</li>
+      <li><i>API et services → Bibliothèque</i> : cherche <b>Google Calendar API</b> → <b>Activer</b>.</li>
+      <li><i>API et services → Écran de consentement OAuth</i> (ou <i>Google Auth Platform</i>) : type <b>Externe</b>, nom « Miahso Dashboard », ton e-mail. Dans <b>Utilisateurs test</b>, ajoute ton adresse Gmail.</li>
+      <li><i>Identifiants → Créer des identifiants → ID client OAuth</i> : type <b>Application Web</b>. Dans <b>Origines JavaScript autorisées</b>, ajoute <code>https://sarahtestelin.github.io</code>. Crée, puis copie l'<b>ID client</b> (finit par <code>.apps.googleusercontent.com</code>).</li>
+      <li>Colle-le ci-dessous. Au premier clic, Google affichera « application non validée » : clique sur <i>Paramètres avancés → Accéder à Miahso Dashboard</i>. C'est normal, l'app est la tienne.</li></ol></details>
+    <label>ID client Google<input id="g-cid" type="text" placeholder="123456-abc.apps.googleusercontent.com" value="${esc(st.gClientId || '')}"></label>
+    <label>Nom de ton agenda<input id="g-cal" type="text" placeholder="réseaux" value="${esc(st.gcalName || 'réseaux')}"></label>
+    <p class="muted"><small>${esc(gcalLabel())}</small></p>
+    <div class="actions" style="justify-content:flex-start"><button class="btn" data-action="gcal-sync">${GC.busy ? 'En cours…' : 'Se connecter et synchroniser'}</button><button class="btn ghost" data-action="gcal-save">Enregistrer</button></div>
+    ${GC.msg ? `<pre class="log">${esc(GC.msg)}</pre>` : ''}`;
   const card = (t, body) => `<section class="card"><h3>${t}</h3>${body}</section>`;
   return head('Réglages', 'Synchro entre appareils, YouTube automatique, import de tes stats et installation.', '') +
-    card('Synchronisation entre appareils', syncBody) + card('YouTube automatique', ytBody) + card('Importer des stats TikTok / Instagram (CSV)', csvBody) +
+    card('Synchronisation entre appareils', syncBody) + card('YouTube automatique', ytBody) + card('Google Agenda', gBody) + card('Importer des stats TikTok / Instagram (CSV)', csvBody) +
     card('Installer l\'application', installBody) +
     card('Mise à jour de l\'app', `<p class="muted">Version ${APP_VERSION}. Si une nouveauté n'apparaît pas, recharge la dernière version : tes données ne sont pas touchées.</p><div class="actions" style="justify-content:flex-start"><button class="btn ghost" data-action="app-update">Recharger la dernière version</button></div>`) +
     card('Sauvegarde', `<p class="muted">Une copie de tes données au format JSON, à garder en lieu sûr.</p><div class="actions" style="justify-content:flex-start"><button class="btn ghost" data-action="export">Exporter</button><button class="btn ghost" data-action="import">Importer</button></div>`) +
@@ -475,6 +584,18 @@ function extraAction(a, el) {
       CATS = ['ASMR', 'Lifestyle', 'Pop culture', 'Skincare / Maquillage', 'Humour', 'Autre'];
       save(); render(); toast('Catégories par défaut'); break;
     }
+    case 'gcal-save': {
+      state.settings = Object.assign({}, state.settings, { gClientId: val('g-cid'), gcalName: val('g-cal') || 'réseaux' });
+      save(); render(); toast('Google Agenda enregistré'); if (state.settings.gClientId) loadGIS().catch(() => {}); break;
+    }
+    case 'gcal-sync': {
+      if (document.getElementById('g-cid')) state.settings = Object.assign({}, state.settings, { gClientId: val('g-cid'), gcalName: val('g-cal') || 'réseaux' });
+      if (!gset().gClientId) { page = 'settings'; render(); toast("Configure d'abord Google Agenda (étapes ci-dessous)."); break; }
+      if (GC.busy) break;
+      toast('Synchronisation avec Google Agenda…');
+      syncGoogle(true).then(m => { toast(m || 'Déjà en cours'); }).catch(e => { GC.msg = 'Erreur : ' + e.message; toast('Google Agenda : ' + e.message); }).finally(() => { if (page === 'settings') render(); });
+      break;
+    }
     case 'csv-pick': document.getElementById('csvFile').click(); break;
     case 'csv-clear': {
       const n = state.items.filter(i => i.source === 'csv').length;
@@ -504,6 +625,7 @@ document.getElementById('csvFile').addEventListener('change', e => { const f = e
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') syncNow(); });
 window.addEventListener('online', () => syncNow());
 /* Revenir sur la dernière page ouverte après un rechargement */
-try { const p = localStorage.getItem('miahso-page'); if (p && PAGES[p]) page = p; } catch (e) { /* ignore */ }
+if (SAVED_PAGE && PAGES[SAVED_PAGE]) page = SAVED_PAGE;
 render();
+if (gset().gClientId) loadGIS().catch(() => {});
 (async () => { await syncNow(); await ytAuto(); })();

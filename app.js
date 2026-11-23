@@ -112,6 +112,7 @@ function save(touch) {
 }
 
 let state = load();
+const SAVED_PAGE = (() => { try { return localStorage.getItem('miahso-page'); } catch (e) { return null; } })();
 let page = 'overview';
 let period = 30;
 let platTab = state.accounts[0].id;
@@ -376,7 +377,7 @@ function calendar() {
     const list = [...its].sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999'));
     body = `<section class="card">${list.map(i => `<div class="trow" style="grid-template-columns:minmax(0,1fr) auto" data-action="edit-item" data-id="${esc(i.id)}"><div><b>${esc(i.title)}</b><small>${esc(rel(i.date))} · ${esc(accName(i.accountId))} · ${esc(i.category)}</small></div><span class="pill ${i.status === 'publié' ? 'ok' : i.status === 'idée' ? '' : 'plan'}">${i.status === 'publié' && Number(i.views) ? fmt(i.views) + ' vues' : esc(i.status)}</span></div>`).join('') || '<div class="empty">Aucun contenu.</div>'}</section>`;
   }
-  return head('Calendrier de contenu', 'Ton pipeline de l\'idée à la publication. Touche → pour passer à l\'étape suivante.', `<button class="btn" data-action="add-item">${icon('plus')} Nouveau contenu</button>`) +
+  return head('Calendrier de contenu', 'Ton pipeline de l\'idée à la publication. Touche → pour passer à l\'étape suivante.', `<button class="btn ghost" data-action="gcal-sync">${icon('cal')} Google Agenda</button> <button class="btn" data-action="add-item">${icon('plus')} Nouveau contenu</button>`) +
     `<div class="tiles">${tiles}</div><div class="bar-tools"><div class="seg">${[['pipeline', 'Pipeline'], ['month', 'Mois'], ['list', 'Liste']].map(([v, l]) => `<button data-action="calview" data-id="${v}" class="${calView === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>${body}`;
 }
 
