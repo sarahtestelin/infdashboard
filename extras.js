@@ -1,6 +1,6 @@
 'use strict';
 /* Miahso_ Dashboard — extras : synchro Supabase, YouTube, import CSV, réglages */
-const APP_VERSION = '12';
+const APP_VERSION = '13';
 const SESS = 'miahso-session', CFGK = 'miahso-cfg', YTLAST = 'miahso-yt-last', SYNCED = 'miahso-synced';
 const lsGet = k => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
 const lsSet = (k, v) => { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* ignore */ } };
@@ -364,15 +364,21 @@ async function gFindCal() {
   if (!hit) throw new Error(`Calendrier « ${gset().gcalName || 'réseaux'} » introuvable. Calendriers vus : ${list.map(c => c.summary).join(', ') || 'aucun'}.`);
   return hit.id;
 }
-const gEligible = it => it.date && !it.source && it.status !== 'idée' && (it.status !== 'publié' || it.date >= addDays(today(), -14));
-function gEvent(it) {
-  const a = acc(it.accountId), plat = a ? a.name.replace('YouTube · ', 'YT ') : '';
-  return {
-    summary: ((it.status === 'publié' ? '✅ ' : '') + (plat ? '[' + plat + '] ' : '') + it.title).slice(0, 200),
-    description: `Étape : ${it.status}\nCatégorie : ${it.category || ''}${it.note ? '\n' + it.note : ''}\n\n— Miahso_ Dashboard`,
-    start: { date: it.date }, end: { date: addDays(it.date, 1) },
-    extendedProperties: { private: { miahso: '1', itemId: it.id } }
-  };
+const GCACHE_KEY = 'miahso-gcal-cache';
+function gcalData() {
+  try { const j = JSON.parse(localStorage.getItem(GCACHE_KEY) || 'null'); if (j && Array.isArray(j.events)) return j; } catch (e) { /* ignore */ }
+  return { events: [], at: 0 };
+}
+function gMap(e) {
+  const s = e.start || {}, en = e.end || {}; let date, end, time = '';
+  if (s.date) { date = s.date; end = en.date || addDays(date, 1); }
+  else {
+    const d = new Date(s.dateTime), d2 = new Date(en.dateTime || s.dateTime);
+    date = iso(d); time = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    const e2 = iso(d2);
+    end = (e2 > date && d2.getHours() === 0 && d2.getMinutes() === 0) ? e2 : addDays(e2 < date ? date : e2, 1);
+  }
+  return { id: e.id, title: e.summary || '(sans titre)', date, end, time, link: e.htmlLink || '' };
 }
 async function syncGoogle(interactive) {
   if (GC.busy) return '';
@@ -380,40 +386,33 @@ async function syncGoogle(interactive) {
   try {
     await gToken(interactive);
     const cal = encodeURIComponent(await gFindCal());
-    const have = {}; let tok = '';
+    /* nettoyage : supprime les événements créés autrefois par l'app (v12) */
+    let old = [], tok = '';
     do {
       const j = await gApi(`/calendars/${cal}/events?privateExtendedProperty=${encodeURIComponent('miahso=1')}&maxResults=250&showDeleted=false${tok ? '&pageToken=' + tok : ''}`);
-      (j.items || []).forEach(e => { const k = e.extendedProperties && e.extendedProperties.private && e.extendedProperties.private.itemId; if (k) have[k] = e; });
-      tok = j.nextPageToken || '';
+      old = old.concat(j.items || []); tok = j.nextPageToken || '';
     } while (tok);
-    let created = 0, updated = 0, removed = 0, pulled = 0, changed = false;
-    const seen = new Set();
-    for (const it of state.items.filter(gEligible)) {
-      seen.add(it.id);
-      const ex = have[it.id], want = gEvent(it);
-      if (!ex) { const c = await gApi(`/calendars/${cal}/events`, 'POST', want); it.gsync = it.date; created++; changed = true; continue; }
-      const gDate = ex.start && ex.start.date;
-      if (gDate && gDate !== it.date && it.gsync === it.date) {
-        it.date = gDate; it.gsync = gDate; pulled++; changed = true; /* déplacé dans Google : on suit */
-        const w2 = gEvent(it); if (w2.summary !== ex.summary || (ex.description || '') !== w2.description) { await gApi(`/calendars/${cal}/events/${ex.id}`, 'PATCH', w2); }
-        continue;
-      }
-      if (ex.summary !== want.summary || gDate !== want.start.date || (ex.description || '') !== want.description) { await gApi(`/calendars/${cal}/events/${ex.id}`, 'PATCH', want); updated++; }
-      if (it.gsync !== it.date) { it.gsync = it.date; changed = true; }
-    }
-    for (const k of Object.keys(have)) if (!seen.has(k)) { await gApi(`/calendars/${cal}/events/${have[k].id}`, 'DELETE'); removed++; }
-    if (changed) { save(); if (page === 'calendar') render(); }
-    const when = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-    GC.msg = `Synchro à ${when} : ${created} créé${created > 1 ? 's' : ''}, ${updated} mis à jour, ${removed} supprimé${removed > 1 ? 's' : ''}${pulled ? `, ${pulled} déplacé${pulled > 1 ? 's' : ''} depuis Google` : ''}.`;
+    for (const x of old) await gApi(`/calendars/${cal}/events/${x.id}`, 'DELETE');
+    /* lecture de ton agenda */
+    const tmin = new Date(Date.now() - 60 * 864e5).toISOString(), tmax = new Date(Date.now() + 365 * 864e5).toISOString();
+    let evs = []; tok = '';
+    do {
+      const j = await gApi(`/calendars/${cal}/events?singleEvents=true&orderBy=startTime&showDeleted=false&maxResults=250&timeMin=${encodeURIComponent(tmin)}&timeMax=${encodeURIComponent(tmax)}${tok ? '&pageToken=' + tok : ''}`);
+      evs = evs.concat((j.items || []).filter(x => x.status !== 'cancelled' && x.start).map(gMap)); tok = j.nextPageToken || '';
+    } while (tok);
+    localStorage.setItem(GCACHE_KEY, JSON.stringify({ events: evs, at: Date.now() }));
+    if (page === 'calendar') render();
+    GC.msg = `Agenda lu à ${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} : ${evs.length} événement${evs.length > 1 ? 's' : ''}${old.length ? `, ${old.length} ancien${old.length > 1 ? 's' : ''} événement${old.length > 1 ? 's' : ''} de l'app supprimé${old.length > 1 ? 's' : ''}` : ''}.`;
     return GC.msg;
   } finally { GC.busy = false; }
 }
 function gcalAuto() {
   if (!gset().gClientId || !GC.token || Date.now() > GC.exp - 60000) return;
+  if (Date.now() - (gcalData().at || 0) < 300000) return;
   clearTimeout(GC.timer);
-  GC.timer = setTimeout(() => { syncGoogle(false).then(() => { if (page === 'settings') render(); }).catch(() => { /* silencieux */ }); }, 4000);
+  GC.timer = setTimeout(() => { syncGoogle(false).catch(() => { /* silencieux */ }); }, 1500);
 }
-const gcalLabel = () => (GC.token && Date.now() < GC.exp) ? 'Connecté à Google pour cette session (la synchro se fait toute seule à chaque modification).' : 'Pas encore connecté sur cet appareil : clique sur « Se connecter et synchroniser ».';
+const gcalLabel = () => (GC.token && Date.now() < GC.exp) ? 'Connecté à Google pour cette session (l\'agenda se rafraîchit tout seul).' : 'Pas encore connecté sur cet appareil : clique sur « Se connecter et synchroniser ».';
 
 /* =====================  PAGE OBJECTIFS & COMPTES (admin)  ===================== */
 const PALETTE = ['#2b3a2f', '#d98aa0', '#c9a96e', '#8fb08a', '#7b9acc', '#b58ad9', '#e0925a', '#5fa8a3'];
@@ -479,7 +478,7 @@ function settings() {
     <div class="inst"><div><b>iPhone / iPad</b><p>Ouvre le lien dans <b>Safari</b> > Partager > « Sur l'écran d'accueil ».</p></div>
     <div><b>Android</b><p>Chrome > menu ⋮ > « Installer l'application ».</p></div>
     <div><b>Ordinateur</b><p>Chrome ou Edge > icône d'installation dans la barre d'adresse.</p></div></div>`;
-  const gBody = `<p class="muted">Tes contenus planifiés (écriture, tournage, montage, planifié) apparaissent dans ton agenda Google, en journée entière. Si tu déplaces un événement dans Google, la date change aussi ici. Les posts publiés restent 14 jours avec un ✅.</p>
+  const gBody = `<p class="muted">Ton calendrier de contenu affiche uniquement ce qu'il y a dans ton agenda Google « réseaux » (lecture seule : tu modifies dans Google, ça se met à jour ici). Tes vidéos publiées n'y sont jamais envoyées.</p>
     <details class="howto"><summary>Comment obtenir l'identifiant client Google (5 minutes, une seule fois)</summary><ol>
       <li>Va sur <b>console.cloud.google.com</b>, ouvre ton projet <b>miahso</b> (celui de la clé YouTube).</li>
       <li><i>API et services → Bibliothèque</i> : cherche <b>Google Calendar API</b> → <b>Activer</b>.</li>
@@ -622,7 +621,7 @@ NAV.push(['Compte', [['goals', 'Objectifs & comptes', 'Objectifs', 'target'], ['
 PAGES.goals = goalsPage;
 PAGES.settings = settings;
 document.getElementById('csvFile').addEventListener('change', e => { const f = e.target.files[0]; if (f) startCsv(f); e.target.value = ''; });
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') syncNow(); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { syncNow(); gcalAuto(); } });
 window.addEventListener('online', () => syncNow());
 /* Revenir sur la dernière page ouverte après un rechargement */
 if (SAVED_PAGE && PAGES[SAVED_PAGE]) page = SAVED_PAGE;

@@ -117,7 +117,7 @@ let page = 'overview';
 let period = 30;
 let platTab = state.accounts[0].id;
 let ovTab = 'all';
-let calView = 'pipeline';
+let calView = 'month';
 let monthOff = 0;
 let sideOpen = false;
 let sideCollapsed = false;
@@ -347,13 +347,25 @@ function bank() {
 }
 
 function calendar() {
+  const G = typeof gcalData === 'function' ? gcalData() : { events: [], at: 0 };
+  const evs = G.events, endOf = x => x.end || addDays(x.date, 1);
+  const on = ds => evs.filter(x => x.date <= ds && ds < endOf(x)).sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+  const calName = ((state.settings || {}).gcalName || 'réseaux');
   const its = state.items, wk0 = mondayOf(today()), wk1 = addDays(wk0, 6);
-  const tiles = [
+  const hhmm = G.at ? new Date(G.at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '—';
+  const pipeTiles = [
     tile('t-pink', 'En préparation', 'bulb', fmt(its.filter(i => ['écriture', 'à tourner', 'montage'].includes(i.status)).length), '', 'Écriture, tournage et montage'),
     tile('t-sage', 'Prévus cette semaine', 'cal', fmt(its.filter(i => i.date >= wk0 && i.date <= wk1 && i.status !== 'publié').length), '', dateFR(wk0) + ' → ' + dateFR(wk1)),
     tile('t-beige', 'Prêts à tourner', 'video', fmt(its.filter(i => i.status === 'à tourner').length), '', 'Scriptés, il ne reste qu\'à filmer'),
     tile('t-lime', 'Publiés', 'check', fmt(its.filter(i => i.status === 'publié').length), '', 'Depuis le début')
   ].join('');
+  const gTiles = [
+    tile('t-pink', "Aujourd'hui", 'cal', fmt(on(today()).length), '', dateFR(today())),
+    tile('t-sage', 'Cette semaine', 'cal', fmt(evs.filter(x => x.date <= wk1 && endOf(x) > wk0).length), '', dateFR(wk0) + ' → ' + dateFR(wk1)),
+    tile('t-beige', '30 prochains jours', 'cal', fmt(evs.filter(x => x.date >= today() && x.date <= addDays(today(), 30)).length), '', 'Dans « ' + calName + ' »'),
+    tile('t-lime', 'Dernière synchro', 'check', hhmm, '', G.at ? dateFR(iso(new Date(G.at))) : 'Pas encore faite')
+  ].join('');
+  const chip = x => `<a class="mchip g" href="${esc(x.link || 'https://calendar.google.com')}" target="_blank" rel="noopener" title="${esc(x.title)}">${x.time ? esc(x.time) + ' ' : ''}${esc(x.title)}</a>`;
   let body = '';
   if (calView === 'pipeline') {
     body = `<div class="kanban">${STATUS.map(s => {
@@ -361,6 +373,8 @@ function calendar() {
       if (s === 'publié') list = list.sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 10);
       return `<div class="col"><div class="col-h"><span style="color:var(--ink)">${s[0].toUpperCase() + s.slice(1)}</span><span>${its.filter(i => i.status === s).length}</span></div>${list.map(itemCard).join('') || '<div class="empty" style="padding:14px 4px">Rien ici</div>'}</div>`;
     }).join('')}</div>`;
+  } else if (!G.at) {
+    body = `<section class="card empty">Ton calendrier affiche ce qu'il y a dans ton agenda Google « ${esc(calName)} ».<br><br><button class="btn" data-action="gcal-sync">${icon('cal')} Connecter et afficher mon agenda</button></section>`;
   } else if (calView === 'month') {
     const first = new Date(); first.setDate(1); first.setMonth(first.getMonth() + monthOff);
     const y = first.getFullYear(), m = first.getMonth(), f = new Date(y, m, 1);
@@ -368,17 +382,20 @@ function calendar() {
     let cells = '';
     for (let k = 0; k < 42; k++) {
       const d = new Date(start); d.setDate(start.getDate() + k);
-      const ds = iso(d), list = its.filter(i => i.date === ds);
-      cells += `<div class="cell ${d.getMonth() !== m ? 'out' : ''} ${ds === today() ? 'today' : ''}" data-action="add-item" data-date="${ds}"><span>${d.getDate()}</span>${list.slice(0, 3).map(i => `<span class="mchip ${i.status === 'publié' ? 'pub' : ''}" data-action="edit-item" data-id="${esc(i.id)}">${esc(i.title)}</span>`).join('')}${list.length > 3 ? `<span class="mchip">+${list.length - 3}</span>` : ''}</div>`;
+      const ds = iso(d), list = on(ds);
+      cells += `<div class="cell ${d.getMonth() !== m ? 'out' : ''} ${ds === today() ? 'today' : ''}" style="cursor:default"><span>${d.getDate()}</span>${list.slice(0, 3).map(chip).join('')}${list.length > 3 ? `<span class="mchip">+${list.length - 3}</span>` : ''}</div>`;
     }
     body = `<div class="month-nav"><button class="btn ghost sm" data-action="month" data-id="-1">‹</button>${f.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}<button class="btn ghost sm" data-action="month" data-id="1">›</button></div>
       <div class="month">${['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'].map(x => `<div class="mh">${x}</div>`).join('')}${cells}</div>`;
   } else {
-    const list = [...its].sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999'));
-    body = `<section class="card">${list.map(i => `<div class="trow" style="grid-template-columns:minmax(0,1fr) auto" data-action="edit-item" data-id="${esc(i.id)}"><div><b>${esc(i.title)}</b><small>${esc(rel(i.date))} · ${esc(accName(i.accountId))} · ${esc(i.category)}</small></div><span class="pill ${i.status === 'publié' ? 'ok' : i.status === 'idée' ? '' : 'plan'}">${i.status === 'publié' && Number(i.views) ? fmt(i.views) + ' vues' : esc(i.status)}</span></div>`).join('') || '<div class="empty">Aucun contenu.</div>'}</section>`;
+    const list = evs.filter(x => endOf(x) > addDays(today(), -7)).sort((a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || '')));
+    body = `<section class="card">${list.map(x => `<a class="trow" style="grid-template-columns:minmax(0,1fr) auto;text-decoration:none;color:inherit;${endOf(x) <= today() ? 'opacity:.5' : ''}" href="${esc(x.link || 'https://calendar.google.com')}" target="_blank" rel="noopener"><div><b>${esc(x.title)}</b><small>${esc(rel(x.date))}${x.time ? ' · ' + esc(x.time) : ''}</small></div><span class="pill plan">${esc(dateFR(x.date))}</span></a>`).join('') || '<div class="empty">Rien de prévu dans ton agenda.</div>'}</section>`;
   }
-  return head('Calendrier de contenu', 'Ton pipeline de l\'idée à la publication. Touche → pour passer à l\'étape suivante.', `<button class="btn ghost" data-action="gcal-sync">${icon('cal')} Google Agenda</button> <button class="btn" data-action="add-item">${icon('plus')} Nouveau contenu</button>`) +
-    `<div class="tiles">${tiles}</div><div class="bar-tools"><div class="seg">${[['pipeline', 'Pipeline'], ['month', 'Mois'], ['list', 'Liste']].map(([v, l]) => `<button data-action="calview" data-id="${v}" class="${calView === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>${body}`;
+  const acts = calView === 'pipeline'
+    ? `<button class="btn" data-action="add-item">${icon('plus')} Nouveau contenu</button>`
+    : `<button class="btn ghost" data-action="gcal-sync">${icon('cal')} Actualiser</button> <a class="btn" href="https://calendar.google.com" target="_blank" rel="noopener">Ouvrir Google Agenda</a>`;
+  return head('Calendrier de contenu', calView === 'pipeline' ? 'Ton pipeline de l\'idée à la publication. Touche → pour passer à l\'étape suivante.' : 'Ce qui est prévu dans ton agenda Google « ' + calName + ' ». Modifie-le dans Google, il se met à jour ici.', acts) +
+    `<div class="tiles">${calView === 'pipeline' ? pipeTiles : gTiles}</div><div class="bar-tools"><div class="seg">${[['month', 'Mois'], ['list', 'Liste'], ['pipeline', 'Pipeline']].map(([v, l]) => `<button data-action="calview" data-id="${v}" class="${calView === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>${body}`;
 }
 
 const TREND_STATUS = ['à tester', 'en test', 'ça marche', 'bof', 'trop tard'];

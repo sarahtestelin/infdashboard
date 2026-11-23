@@ -246,3 +246,7 @@ input[type=color]{height:42px;padding:3px;border-radius:12px;cursor:pointer}
 .howto summary{cursor:pointer;font-weight:600}
 .howto ol{margin:10px 0 2px 18px;padding:0;display:flex;flex-direction:column;gap:8px;color:var(--muted)}
 .howto code{background:rgba(0,0,0,.06);padding:1px 6px;border-radius:6px;font-size:.85em}
+
+.mchip.g{text-decoration:none}
+.mchip.g:hover{filter:brightness(.95)}
+a.btn{text-decoration:none;display:inline-flex;align-items:center}
