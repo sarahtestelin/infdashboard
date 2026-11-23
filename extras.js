@@ -1,6 +1,6 @@
 'use strict';
 /* Miahso_ Dashboard — extras : synchro Supabase, YouTube, import CSV, réglages */
-const APP_VERSION = '10';
+const APP_VERSION = '11';
 const SESS = 'miahso-session', CFGK = 'miahso-cfg', YTLAST = 'miahso-yt-last', SYNCED = 'miahso-synced';
 const lsGet = k => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
 const lsSet = (k, v) => { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* ignore */ } };
@@ -310,6 +310,7 @@ function startCsv(file) {
           if (it) { Object.assign(it, stats); updated++; }
           else { state.items.push(Object.assign({ id, title: title.slice(0, 140), category: 'Autre', accountId: out.acc, status: 'publié', date, note: '', moved: today(), source: 'csv' }, stats)); added++; }
         });
+        state.settings = Object.assign({}, state.settings, { imports: Object.assign({}, (state.settings || {}).imports, { [out.acc]: today() }) });
         setTimeout(() => toast(`Import : ${added} nouveau${added > 1 ? 'x' : ''}, ${updated} mis à jour, ${skipped} ignoré${skipped > 1 ? 's' : ''}${others ? ` (+ ${others} d'un autre compte)` : ''}`), 50);
       });
     } catch (e) { toast('Fichier CSV illisible.'); }
@@ -329,6 +330,7 @@ function goalsPage() {
         <label>Abonnés actuels<input id="g-f-${id}" type="number" min="0" value="${esc(a.followers)}"></label>
         <label>Objectif d'abonnés<input id="g-g-${id}" type="number" min="0" value="${esc(a.goal)}"></label>
         <label>Posts visés par semaine<input id="g-w-${id}" type="number" min="0" value="${esc(a.weekly == null ? '' : a.weekly)}"></label>
+        <label>Objectif de vues (30 jours)<input id="g-v-${id}" type="number" min="0" placeholder="ex. 20000" value="${esc(a.viewsGoal || '')}"></label>
         <label>Couleur<input id="g-c-${id}" type="color" value="${esc(a.color || '#2b3a2f')}"></label>
         ${isYT(a) ? `<label>Chaîne YouTube (@nom ou lien)<input id="g-y-${id}" type="text" placeholder="@mon_pseudo" value="${esc(a.ytHandle || '')}"></label>` : ''}
       </div>
@@ -337,7 +339,7 @@ function goalsPage() {
   }).join('');
   const cats = (Array.isArray(st.cats) && st.cats.length ? st.cats : CATS).join('\n');
   return head('Objectifs & comptes', 'Règle tes objectifs, tes rythmes de publication, tes comptes et tes catégories. Tout est modifiable.', `<button class="btn" data-action="acc-add">${icon('plus')} Ajouter un compte</button>`) +
-    card2('Objectif global', `<p class="muted">Un objectif de vues sur 30 jours pour tous tes comptes. Il s'affiche sur la Vue d'ensemble (laisse vide pour le retirer).</p>
+    card2('Objectif global', `<p class="muted">Optionnel : si tu laisses vide, l'app additionne les objectifs de vues de chaque compte (ci-dessous).</p>
       <label>Vues visées sur 30 jours<input id="g-views" type="number" min="0" placeholder="ex. 50000" value="${esc(st.viewsGoal || '')}"></label>
       <div class="actions" style="justify-content:flex-start"><button class="btn" data-action="goals-save">Enregistrer</button></div>`) +
     `<h2 class="sub-h">Mes comptes</h2>` + accCards +
@@ -430,7 +432,7 @@ function extraAction(a, el) {
         state.history = state.history.filter(h => !(h.accountId === id && h.date === today()));
         state.history.push({ date: today(), accountId: id, followers: f });
       }
-      Object.assign(x, { name: val('g-n-' + id) || x.name, followers: f, goal: num('g-g-' + id), weekly: num('g-w-' + id), color: (document.getElementById('g-c-' + id) || {}).value || x.color });
+      Object.assign(x, { name: val('g-n-' + id) || x.name, followers: f, goal: num('g-g-' + id), weekly: num('g-w-' + id), viewsGoal: num('g-v-' + id), color: (document.getElementById('g-c-' + id) || {}).value || x.color });
       if (isYT(x) && document.getElementById('g-y-' + id)) x.ytHandle = val('g-y-' + id);
       save(); render(); toast('Compte enregistré'); break;
     }

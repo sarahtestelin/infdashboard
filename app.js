@@ -247,7 +247,8 @@ function overview() {
   const byAcc = state.accounts.map(a => ({ n: cur.filter(i => i.accountId === a.id).length, a })).filter(x => x.n).map(x => `${x.n} ${esc(x.a.name.replace('YouTube · ', 'YT '))}`).join(' · ');
   const sub = cur.length ? `${who} a fait ${fmt(vC)} vues sur ${cur.length} post${cur.length > 1 ? 's' : ''} ces ${P} derniers jours. Voici ce qui marche et quoi faire ensuite.`
     : 'Ajoute tes posts publiés et leurs vues dans le calendrier pour voir apparaître tes statistiques.';
-  const vg = Number((state.settings || {}).viewsGoal) || 0, vgP = vg * P / 30;
+  const sumGoals = state.accounts.reduce((s, x) => s + (Number(x.viewsGoal) || 0), 0);
+  const vg = A ? (Number(acc(A).viewsGoal) || 0) : (Number((state.settings || {}).viewsGoal) || sumGoals), vgP = vg * P / 30;
   const vGoalTxt = vg ? `<br><small>Objectif : ${fmt(Math.round(vgP))} vues · ${Math.min(999, Math.round(vC / vgP * 100))} %</small>` : '';
   const tiles = [
     tile('t-pink', `Vues, ${P} derniers jours`, 'eye', fmt(vC), chipPct(vC, vP), (vP ? `vs ${fmt(vP)} les ${P} jours d'avant` : 'Aucune période précédente à comparer') + vGoalTxt),
@@ -279,7 +280,7 @@ function overview() {
   const split = state.accounts.map(x => { const c = periodItems(P, 0, x.id), p = periodItems(P, P, x.id); return { x, n: c.length, v: sumViews(c), vp: sumViews(p), e: engagement(c) }; });
   const maxV = Math.max(1, ...split.map(s => s.v)), totV = split.reduce((s, r) => s + r.v, 0);
   const splitCard = `<section class="card"><h3>Vues par plateforme <small class="muted" style="font:400 .8rem var(--sans)">${P} derniers jours</small></h3>
-    ${split.map(r => `<div class="vsplit ${A === r.x.id ? 'on' : ''}" data-action="ovtab" data-id="${esc(r.x.id)}"><div class="vs-h"><span>${accDot(r.x.id)} ${esc(r.x.name)}</span><span><b>${fmt(r.v)}</b>${totV ? ` <small class="muted">${Math.round(r.v / totV * 100)} %</small>` : ''} ${chipPct(r.v, r.vp)}</span></div><div class="vs-bar"><i style="width:${r.v / maxV * 100}%;background:${r.x.color}"></i></div><small class="muted">${r.n} post${r.n > 1 ? 's' : ''}${r.n ? ` · ${fmt(Math.round(r.v / r.n))} vues / post` : ''}${r.e != null ? ` · ${r.e.toFixed(1).replace('.', ',')} % d'engagement` : ''}</small></div>`).join('')}
+    ${split.map(r => `<div class="vsplit ${A === r.x.id ? 'on' : ''}" data-action="ovtab" data-id="${esc(r.x.id)}"><div class="vs-h"><span>${accDot(r.x.id)} ${esc(r.x.name)}</span><span><b>${fmt(r.v)}</b>${totV ? ` <small class="muted">${Math.round(r.v / totV * 100)} %</small>` : ''} ${chipPct(r.v, r.vp)}</span></div><div class="vs-bar"><i style="width:${r.v / maxV * 100}%;background:${r.x.color}"></i></div><small class="muted">${r.n} post${r.n > 1 ? 's' : ''}${r.n ? ` · ${fmt(Math.round(r.v / r.n))} vues / post` : ''}${r.e != null ? ` · ${r.e.toFixed(1).replace('.', ',')} % d'engagement` : ''}${Number(r.x.viewsGoal) ? ` · objectif ${fmt(Math.round(r.x.viewsGoal * P / 30))} (${Math.round(r.v / (r.x.viewsGoal * P / 30) * 100)} %)` : ''}</small></div>`).join('')}
     <small class="muted" style="display:block;margin-top:8px">Touche une plateforme pour filtrer toute la page.</small></section>`;
   return head(`${greeting()}, Sarah`, sub, `<button class="btn" data-action="export">${icon('down')} Exporter</button>`) +
     startCard() + todoCard() + `<div class="bar-tools">${ovPills}${periodPills()}</div><div class="tiles">${tiles}</div>
@@ -393,8 +394,14 @@ function todos() {
     .forEach(i => out.push({ ic: 'video', t: `« ${i.title} » traîne`, s: `En « ${i.status} » depuis ${daysBetween(i.moved, t)} jours : avance ou abandonne.`, b: 'Ouvrir', a: 'edit-item', id: i.id }));
   const noViews = published().filter(i => i.date <= addDays(t, -2) && !Number(i.views)).length;
   if (noViews) out.push({ ic: 'eye', t: `${noViews} post${noViews > 1 ? 's' : ''} publié${noViews > 1 ? 's' : ''} sans vues`, s: 'Sans les vues, l\'analyse ne peut pas t\'aider.', b: 'Ajouter les vues', a: 'nav', id: 'review' });
+  state.accounts.filter(x => !(typeof isYT === 'function' && isYT(x))).forEach(x => {
+    const last = ((state.settings || {}).imports || {})[x.id], hasCsv = state.items.some(i => i.accountId === x.id && i.source === 'csv');
+    const age = last ? daysBetween(last, t) : null;
+    if (age == null && !hasCsv) return;
+    if (age == null || age >= 14) out.push({ ic: 'up', t: `Importe tes stats ${x.name}`, s: age == null ? 'Dernier import inconnu : exporte un CSV et importe-le.' : `Dernier import il y a ${age} jours${/tiktok/i.test(x.name) ? ' (TikTok ne garde que 60 jours)' : ''}.`, b: 'Importer', a: 'nav', id: 'settings' });
+  });
   const stale = state.accounts.some(a => { const h = state.history.filter(x => x.accountId === a.id).map(x => x.date).sort().pop(); return !h || daysBetween(h, t) >= 7; });
-  if (stale) out.push({ ic: 'users', t: 'Mets à jour tes abonnés', s: 'Pas de mise à jour depuis plus d\'une semaine.', b: 'Mettre à jour', a: 'nav', id: 'review' });
+  if (stale) out.push({ ic: 'users', t: 'Mets à jour tes abonnés', s: 'Pas de mise à jour depuis plus d\'une semaine.', b: 'Mettre à jour', a: 'nav', id: 'goals' });
   if (state.items.filter(i => i.status === 'idée').length < 3) out.push({ ic: 'bulb', t: 'Ta banque d\'idées est presque vide', s: 'Va voir tes tendances et tes inspirations, ou note une idée.', b: 'Ajouter une idée', a: 'add-item', attrs: 'data-status="idée"' });
   return out.slice(0, 5);
 }
