@@ -225,3 +225,12 @@ a.btn{text-decoration:none}
 .card p{margin-top:0}
 @media (min-width:901px){body.collapsed .sync{justify-content:center;padding:11px;width:48px}body.collapsed .sync .lbl{display:none}}
 @media (max-width:900px){.inst{grid-template-columns:1fr}}
+
+/* Vues par plateforme */
+.vsplit{padding:10px 8px;margin:0 -8px;border-radius:12px;cursor:pointer;display:flex;flex-direction:column;gap:6px}
+.vsplit+.vsplit{border-top:1px solid var(--line)}
+.vsplit.on,.vsplit:hover{background:rgba(0,0,0,.035)}
+.vs-h{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.vs-h b{font-family:var(--serif,inherit);font-size:1.15rem}
+.vs-bar{height:8px;border-radius:99px;background:rgba(0,0,0,.07);overflow:hidden}
+.vs-bar i{display:block;height:100%;border-radius:99px;min-width:3px}

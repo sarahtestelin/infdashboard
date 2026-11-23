@@ -115,6 +115,7 @@ let state = load();
 let page = 'overview';
 let period = 30;
 let platTab = state.accounts[0].id;
+let ovTab = 'all';
 let calView = 'pipeline';
 let monthOff = 0;
 let sideOpen = false;
@@ -159,10 +160,10 @@ function followersAt(accId, date) {
   h.forEach(x => { if (x.date <= date) r = x.followers; });
   return r;
 }
-function netFollowers(days) {
+function netFollowers(days, onlyAcc) {
   const start = addDays(today(), -days);
   let tot = 0; const parts = [];
-  state.accounts.forEach(a => {
+  state.accounts.filter(a => !onlyAcc || a.id === onlyAcc).forEach(a => {
     const f0 = followersAt(a.id, start);
     if (f0 == null) return;
     const g = a.followers - f0;
@@ -171,11 +172,11 @@ function netFollowers(days) {
   });
   return { tot, parts };
 }
-function weeklyViews(n) {
+function weeklyViews(n, accId) {
   const m0 = mondayOf(today()), out = [];
   for (let k = n - 1; k >= 0; k--) {
     const s = addDays(m0, -7 * k), e = addDays(s, 6);
-    out.push({ s, v: sumViews(published().filter(i => i.date >= s && i.date <= e)) });
+    out.push({ s, v: sumViews(published().filter(i => i.date >= s && i.date <= e && (!accId || i.accountId === accId))) });
   }
   return out;
 }
@@ -238,11 +239,13 @@ const accDot = id => `<span class="dot" style="--c:${accColor(id)}"></span>`;
 
 /* ---------- pages ---------- */
 function overview() {
-  const P = period, cur = periodItems(P), prev = periodItems(P, P);
+  if (ovTab !== 'all' && !acc(ovTab)) ovTab = 'all';
+  const A = ovTab === 'all' ? null : ovTab, who = A ? acc(A).name : 'Miahso_';
+  const P = period, cur = periodItems(P, 0, A), prev = periodItems(P, P, A);
   const vC = sumViews(cur), vP = sumViews(prev), eC = engagement(cur), eP = engagement(prev);
-  const nf = netFollowers(P);
+  const nf = netFollowers(P, A);
   const byAcc = state.accounts.map(a => ({ n: cur.filter(i => i.accountId === a.id).length, a })).filter(x => x.n).map(x => `${x.n} ${esc(x.a.name.replace('YouTube · ', 'YT '))}`).join(' · ');
-  const sub = cur.length ? `Miahso_ a fait ${fmt(vC)} vues sur ${cur.length} post${cur.length > 1 ? 's' : ''} ces ${P} derniers jours. Voici ce qui marche et quoi faire ensuite.`
+  const sub = cur.length ? `${who} a fait ${fmt(vC)} vues sur ${cur.length} post${cur.length > 1 ? 's' : ''} ces ${P} derniers jours. Voici ce qui marche et quoi faire ensuite.`
     : 'Ajoute tes posts publiés et leurs vues dans le calendrier pour voir apparaître tes statistiques.';
   const tiles = [
     tile('t-pink', `Vues, ${P} derniers jours`, 'eye', fmt(vC), chipPct(vC, vP), vP ? `vs ${fmt(vP)} les ${P} jours d'avant` : 'Aucune période précédente à comparer'),
@@ -251,7 +254,7 @@ function overview() {
     tile('t-lime', `Posts publiés, ${P} j`, 'video', fmt(cur.length), '', byAcc || 'Aucun post publié sur la période')
   ].join('');
 
-  const wk = weeklyViews(8);
+  const wk = weeklyViews(8, A);
   const tot = state.accounts.reduce((s, a) => s + a.followers, 0);
   const topAcc = [...state.accounts].sort((a, b) => b.followers - a.followers)[0];
   const days = dayAverages(cur), maxD = Math.max(1, ...days.map(x => x.avg)), best = days.reduce((b, x) => x.avg > b.avg ? x : b, days[0]);
@@ -270,11 +273,18 @@ function overview() {
     return `<div class="row" data-action="edit-acc" data-id="${esc(a.id)}" style="cursor:pointer;flex-direction:column;align-items:stretch;gap:6px"><div style="display:flex;justify-content:space-between"><span>${accDot(a.id)} ${esc(a.name)}</span><small class="muted">${fmt(a.followers)} / ${fmt(a.goal)}</small></div><div style="height:8px;background:#e7e1d1;border-radius:99px;overflow:hidden"><i style="display:block;height:100%;width:${p.toFixed(1)}%;background:${a.color};border-radius:99px"></i></div></div>`;
   }).join('');
 
+  const ovPills = `<div class="seg"><button data-action="ovtab" data-id="all" class="${!A ? 'on' : ''}">Toutes</button>${state.accounts.map(x => `<button data-action="ovtab" data-id="${esc(x.id)}" class="${A === x.id ? 'on' : ''}"><span class="dot" style="--c:${x.color}"></span>${esc(x.name.replace('YouTube · ', 'YT '))}</button>`).join('')}</div>`;
+  const split = state.accounts.map(x => { const c = periodItems(P, 0, x.id), p = periodItems(P, P, x.id); return { x, n: c.length, v: sumViews(c), vp: sumViews(p), e: engagement(c) }; });
+  const maxV = Math.max(1, ...split.map(s => s.v)), totV = split.reduce((s, r) => s + r.v, 0);
+  const splitCard = `<section class="card"><h3>Vues par plateforme <small class="muted" style="font:400 .8rem var(--sans)">${P} derniers jours</small></h3>
+    ${split.map(r => `<div class="vsplit ${A === r.x.id ? 'on' : ''}" data-action="ovtab" data-id="${esc(r.x.id)}"><div class="vs-h"><span>${accDot(r.x.id)} ${esc(r.x.name)}</span><span><b>${fmt(r.v)}</b>${totV ? ` <small class="muted">${Math.round(r.v / totV * 100)} %</small>` : ''} ${chipPct(r.v, r.vp)}</span></div><div class="vs-bar"><i style="width:${r.v / maxV * 100}%;background:${r.x.color}"></i></div><small class="muted">${r.n} post${r.n > 1 ? 's' : ''}${r.n ? ` · ${fmt(Math.round(r.v / r.n))} vues / post` : ''}${r.e != null ? ` · ${r.e.toFixed(1).replace('.', ',')} % d'engagement` : ''}</small></div>`).join('')}
+    <small class="muted" style="display:block;margin-top:8px">Touche une plateforme pour filtrer toute la page.</small></section>`;
   return head(`${greeting()}, Sarah`, sub, `<button class="btn" data-action="export">${icon('down')} Exporter</button>`) +
-    startCard() + todoCard() + `<div class="bar-tools">${periodPills()}</div><div class="tiles">${tiles}</div>
+    startCard() + todoCard() + `<div class="bar-tools">${ovPills}${periodPills()}</div><div class="tiles">${tiles}</div>
     <div class="grid">
       <div>
-        <section class="card"><h3>Vues par semaine de publication</h3>
+        ${splitCard}
+        <section class="card"><h3>Vues par semaine de publication${A ? ' · ' + esc(who) : ''}</h3>
           <div class="big">${fmt(vC)}</div><small class="muted">sur les ${P} derniers jours</small>${lineChart(wk)}
           <div class="top" style="display:flex;justify-content:space-between;color:#7d8577;font-size:.72rem"><span>${dateFR(wk[0].s)}</span><span>8 dernières semaines</span><span>${dateFR(wk[7].s)}</span></div>
         </section>
@@ -656,6 +666,7 @@ document.addEventListener('click', e => {
       render(); break;
     case 'period': period = Number(id); render(); break;
     case 'plat': platTab = id; render(); break;
+    case 'ovtab': ovTab = id; render(); break;
     case 'calview': calView = id; render(); break;
     case 'month': monthOff += Number(id); render(); break;
     case 'edit-acc': accountForm(acc(id)); break;
