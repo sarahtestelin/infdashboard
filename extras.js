@@ -366,5 +366,7 @@ PAGES.settings = settings;
 document.getElementById('csvFile').addEventListener('change', e => { const f = e.target.files[0]; if (f) startCsv(f); e.target.value = ''; });
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') syncNow(); });
 window.addEventListener('online', () => syncNow());
+/* Revenir sur la dernière page ouverte après un rechargement */
+try { const p = localStorage.getItem('miahso-page'); if (p && PAGES[p]) page = p; } catch (e) { /* ignore */ }
 render();
 (async () => { await syncNow(); await ytAuto(); })();

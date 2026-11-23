@@ -500,6 +500,7 @@ const NAV = [
 ];
 
 function render() {
+  try { localStorage.setItem('miahso-page', page); } catch (e) { /* ignore */ }
   const nIdeas = state.items.filter(i => i.status === 'idée').length;
   document.body.classList.toggle('collapsed', sideCollapsed);
   document.body.classList.toggle('side-open', sideOpen);

@@ -17,3 +17,8 @@ create policy "dashboards_insert_own" on public.dashboards
 
 create policy "dashboards_update_own" on public.dashboards
   for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- Droits d'accès pour les comptes connectés (nécessaire sur les projets récents).
+-- Sans ça : « permission denied for table dashboards ». Les règles RLS ci-dessus restent le garde-fou.
+grant usage on schema public to authenticated;
+grant select, insert, update on public.dashboards to authenticated;
