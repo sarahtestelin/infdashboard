@@ -45,7 +45,10 @@ const ICONS = {
   x: '<path d="M6 6l12 12M18 6 6 18"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   down: '<path d="M12 4v12m0 0-5-5m5 5 5-5M5 20h14"/>',
-  up: '<path d="M12 20V8m0 0-5 5m5-5 5 5M5 4h14"/>'
+  up: '<path d="M12 20V8m0 0-5 5m5-5 5 5M5 4h14"/>',
+  chevL: '<path d="m15 6-6 6 6 6"/>',
+  chevR: '<path d="m9 6 6 6-6 6"/>',
+  menu: '<path d="M4 7h16M4 12h16M4 17h16"/>'
 };
 const icon = n => `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[n] || ''}</svg>`;
 
@@ -98,6 +101,10 @@ let period = 30;
 let platTab = state.accounts[0].id;
 let calView = 'pipeline';
 let monthOff = 0;
+let sideOpen = false;
+let sideCollapsed = false;
+try { sideCollapsed = localStorage.getItem('miahso-side') === '1'; } catch (e) { /* ignore */ }
+const isMobile = () => window.matchMedia('(max-width:900px)').matches;
 
 const acc = id => state.accounts.find(a => a.id === id);
 const accName = id => (acc(id) || { name: 'Non défini' }).name;
@@ -344,9 +351,13 @@ const NAV = [
 
 function render() {
   const nIdeas = state.items.filter(i => i.status === 'idée').length;
-  $('#side').innerHTML = `<div class="brand"><div class="avatar">M</div><div><b>Miahso_</b><small>ASMR &amp; lifestyle</small></div></div>` +
-    NAV.map(([g, list]) => `<div class="sec">${g}</div>` + list.map(([id, label, , ic]) => `<button class="nav-i ${page === id ? 'on' : ''}" data-action="nav" data-id="${id}">${icon(ic)}<span>${label}</span>${id === 'bank' && nIdeas ? `<span class="badge">${nIdeas}</span>` : ''}</button>`).join('')).join('');
-  $('#bottom').innerHTML = NAV.flatMap(([, l]) => l).map(([id, , short, ic]) => `<button class="${page === id ? 'on' : ''}" data-action="nav" data-id="${id}">${icon(ic)}<span>${short}</span></button>`).join('');
+  document.body.classList.toggle('collapsed', sideCollapsed);
+  document.body.classList.toggle('side-open', sideOpen);
+  const toggleIcon = isMobile() ? 'x' : sideCollapsed ? 'chevR' : 'chevL';
+  const toggleTitle = isMobile() ? 'Fermer le menu' : sideCollapsed ? 'Agrandir le menu' : 'Réduire le menu';
+  $('#side').innerHTML = `<div class="brand"><div class="avatar">M</div><div class="brand-t"><b>Miahso_</b><small>ASMR &amp; lifestyle</small></div><button class="side-toggle" data-action="side-toggle" title="${toggleTitle}" aria-label="${toggleTitle}">${icon(toggleIcon)}</button></div>` +
+    NAV.map(([g, list]) => `<div class="sec">${g}</div>` + list.map(([id, label, , ic]) => `<button class="nav-i ${page === id ? 'on' : ''}" data-action="nav" data-id="${id}" title="${esc(label)}">${icon(ic)}<span class="lbl">${label}</span>${id === 'bank' && nIdeas ? `<span class="badge">${nIdeas}</span>` : ''}</button>`).join('')).join('');
+  $('#topbar').innerHTML = `<button data-action="menu" aria-label="Ouvrir le menu">${icon('menu')}</button><b>Miahso_</b>`;
   $('#view').innerHTML = PAGES[page]();
 }
 
@@ -433,7 +444,13 @@ document.addEventListener('click', e => {
   if (!t) return;
   const id = t.dataset.id;
   switch (t.dataset.action) {
-    case 'nav': page = id; render(); window.scrollTo(0, 0); break;
+    case 'nav': page = id; sideOpen = false; render(); window.scrollTo(0, 0); break;
+    case 'menu': sideOpen = true; render(); break;
+    case 'scrim': sideOpen = false; render(); break;
+    case 'side-toggle':
+      if (isMobile()) sideOpen = false;
+      else { sideCollapsed = !sideCollapsed; try { localStorage.setItem('miahso-side', sideCollapsed ? '1' : '0'); } catch (err) { /* ignore */ } }
+      render(); break;
     case 'period': period = Number(id); render(); break;
     case 'plat': platTab = id; render(); break;
     case 'calview': calView = id; render(); break;
@@ -479,6 +496,7 @@ $('#file').addEventListener('change', e => {
   e.target.value = '';
 });
 
+window.addEventListener('resize', () => { if (!isMobile() && sideOpen) { sideOpen = false; render(); } });
 save();
 render();
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
