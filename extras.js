@@ -1,6 +1,6 @@
 'use strict';
 /* Miahso_ Dashboard — extras : synchro Supabase, YouTube, import CSV, réglages */
-const APP_VERSION = '23';
+const APP_VERSION = '24';
 
 /* ---------- détection automatique du type de contenu ---------- */
 const CAT_RULES = [

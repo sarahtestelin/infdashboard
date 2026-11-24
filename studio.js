@@ -33,8 +33,10 @@
     if (n >= 3) {
       const len = a => a.reduce((s, i) => s + String(i.title || '').length, 0) / a.length, lt = len(top), lb = len(bot);
       if (Math.abs(lt - lb) > Math.max(8, lb * 0.25)) L.push(`Titre : tes meilleurs posts ont des titres ${lt < lb ? 'plus courts' : 'plus longs'} (~${Math.round(lt)} caractères contre ~${Math.round(lb)}).`);
-      const hb = new Set(bot.flatMap(i => i.hashtags || [])), ht = [...new Set(top.flatMap(i => i.hashtags || []))].filter(h => !hb.has(h)).slice(0, 4);
-      if (ht.length) L.push(`Hashtags des meilleurs posts absents des moins bons : ${ht.map(h => '#' + h).join(' ')}.`);
+      const cnt = {}; v.forEach(i => (i.hashtags || []).forEach(h => { (cnt[h] = cnt[h] || []).push(i); }));
+      const hs = Object.entries(cnt).filter(([, a]) => a.length >= 2 && a.length < n).map(([h, a]) => ({ h, w: avgV(a), wo: avgV(v.filter(i => !a.includes(i))), n: a.length })).sort((x, y) => (y.w / (y.wo || 1)) - (x.w / (x.wo || 1)));
+      if (hs.length && hs[0].w > hs[0].wo * 1.2) L.push(`Hashtag : les posts avec #${hs[0].h} font ${fmt(Math.round(hs[0].w))} vues en moy., ceux sans : ${fmt(Math.round(hs[0].wo))}.`);
+      const hl = hs[hs.length - 1]; if (hs.length > 1 && hl.w < hl.wo * 0.8) L.push(`Hashtag : #${hl.h} semble freiner (${fmt(Math.round(hl.w))} vues avec, ${fmt(Math.round(hl.wo))} sans).`);
     }
     if (q < 0.85 && rows.length > 1 && rows[0].k !== r.k && S.fmtBy !== 'hash') L.push(`Ton format le plus fort est « ${rows[0].k} » (${fmt(Math.round(rows[0].avg))} vues) : essaie de le mélanger à celui-ci pour le relancer.`);
     if (window.compOutliers && tagsOfKey.length) {
@@ -44,10 +46,31 @@
     if (!L.length) L.push(n < 3 ? 'Pas encore assez de posts dans ce format pour trouver ce qui change : publies-en 2 ou 3 de plus en variant le jour, le titre et les hashtags.' : 'Rien de net ne ressort : teste un seul changement à la fois (jour, accroche, mélange) pour voir ce qui joue.');
     return L;
   }
+  function claudePrompt(r, overall, rows) {
+    const v = r.v.slice().sort((a, b) => Number(b.views) - Number(a.views));
+    const line = i => `- « ${trunc(i.title, 90)} » · ${fmt(i.views)} vues · ${i.date} (${DAYN[at(i.date).getDay()]}) · ${itemFmt(i) ? (itemFmt(i) === 'short' ? 'Short' : 'vidéo longue') + ' · ' : ''}${(i.tags || []).join(' + ') || 'sans sous-type'}${(i.hashtags || []).length ? ' · ' + i.hashtags.map(h => '#' + h).join(' ') : ''}`;
+    const tg = S.fmtBy === 'tag' ? [r.k] : S.fmtBy === 'combo' ? r.k.split(' + ') : [];
+    const ext = window.compOutliers && tg.length ? window.compOutliers().filter(x => tg.every(t => detectTags(x.title + ' ' + (x.note || '')).includes(t))).sort((a, b) => b.views - a.views).slice(0, 8) : [];
+    const q = overall ? Math.round((r.avg / overall - 1) * 100) : 0;
+    return `Je suis Miahso_, créatrice ASMR française (TikTok, Instagram, YouTube). Mon univers : ASMR mêlé à makeup, roleplay, lifestyle, pop culture, gaming… à garder.
+
+Mon contenu « ${r.k} » : ${r.n} posts, ${fmt(Math.round(r.avg))} vues en moyenne, soit ${q >= 0 ? '+' : ''}${q} % par rapport à ma moyenne générale (${fmt(Math.round(overall))}).
+
+Mes posts « ${r.k} » (du plus vu au moins vu) :
+${v.slice(0, 15).map(line).join('\n')}
+
+Mes autres formats les plus forts : ${rows.filter(x => x.k !== r.k).slice(0, 3).map(x => `${x.k} (${fmt(Math.round(x.avg))} vues)`).join(', ') || '—'}
+${ext.length ? '\nContenus de ma veille qui cartonnent dans ce même format :\n' + ext.map(x => `- « ${trunc(x.title, 90)} » · ${x.platform} · ${fmt(x.views)} vues${x.creator ? ' · ' + x.creator.name : ''}`).join('\n') + '\n' : ''}
+Fais une recherche web sur ce qui fonctionne en ce moment pour ce type de contenu (« ${r.k} ») en ASMR, sur TikTok, Instagram et YouTube, en français en priorité. Puis réponds en 4 parties courtes :
+1. Pourquoi mes posts ${q <= -15 ? 'sous-performent' : q >= 15 ? 'fonctionnent' : 'stagnent'} (en comparant avec ce que tu as trouvé chez les autres).
+2. Ce qui marche chez les autres : accroche, durée, structure, sons, miniature, jour de publication.
+3. 5 idées concrètes de posts pour moi (titre + accroche des 3 premières secondes), qui s'inspirent de ça sans copier et gardent mon univers.
+4. Un jeu de 8 hashtags + une description optimisée pour la visibilité.`;
+  }
   function openBox(r, overall, rows) {
     const q = overall ? r.avg / overall : 1, head2 = r.n < 2 ? 'Pistes' : q >= 1.15 ? 'Pour répéter ce succès' : q <= 0.85 ? 'Pour le repenser' : 'Pour progresser';
     const posts = r.v.slice().sort((a, b) => Number(b.views) - Number(a.views)).slice(0, 8).map(i => `<div style="margin:3px 0"><a href="#" data-action="edit-item" data-id="${esc(i.id)}" style="color:inherit"><b>${esc(trunc(i.title, 60))}</b></a> <small class="muted">${fmt(i.views)} vues · ${esc(dateFR(i.date))}${(i.tags || []).length ? ' · ' + esc(i.tags.join(' + ')) : ''}</small></div>`).join('');
-    return `<div style="margin-top:8px;padding:10px;background:rgba(0,0,0,.04);border-radius:10px"><small class="muted">Posts concernés</small>${posts}<div style="margin-top:8px"><b>${head2}</b>${adviceFor(r, overall, rows).map(t => `<p class="muted" style="margin:4px 0">• ${esc(t)}</p>`).join('')}</div></div>`;
+    return `<div style="margin-top:8px;padding:10px;background:rgba(0,0,0,.04);border-radius:10px"><small class="muted">Posts concernés</small>${posts}<div class="actions" style="justify-content:flex-start;margin-top:8px"><button class="btn sm" data-action="f-claude" data-id="${esc(r.k)}">Conseils avec Claude (recherche web)</button></div><div style="margin-top:8px"><b>${head2}</b> <small class="muted">calculé sur tes chiffres</small>${adviceFor(r, overall, rows).map(t => `<p class="muted" style="margin:4px 0">• ${esc(t)}</p>`).join('')}</div></div>`;
   }
   function formatsPage() {
     const from = S.fmtPer ? addDays(today(), -S.fmtPer + 1) : '0000-00-00';
@@ -392,6 +415,7 @@ ${bank || '(aucune)'}`;
     const id = el.dataset.id;
     switch (a) {
       case 'f-by': S.fmtBy = id; S.fmtOpen = ''; render(); return true;
+      case 'f-claude': { const its = published().filter(i => i.date >= (S.fmtPer ? addDays(today(), -S.fmtPer + 1) : '0000-00-00') && Number(i.views) > 0 && (S.fmtAcc === 'all' || matchAcc(i, S.fmtAcc))); const m = {}; its.forEach(i => { (S.fmtBy === 'tag' ? (i.tags && i.tags.length ? i.tags : ['Sans sous-type']) : S.fmtBy === 'combo' ? [(i.tags && i.tags.length) ? i.tags.slice().sort().join(' + ') : 'Sans sous-type'] : S.fmtBy === 'hash' ? (i.hashtags || []).map(h => '#' + h) : [i.category || 'Autre']).forEach(k => { (m[k] = m[k] || []).push(i); }); }); const rows = Object.entries(m).map(([k, v]) => ({ k, v, n: v.length, avg: sumViews(v) / v.length })).sort((a, b) => b.avg - a.avg); const r = rows.find(x => x.k === id); if (r) { copyText(claudePrompt(r, its.length ? sumViews(its) / its.length : 0, rows)); toast('Prompt copié : colle-le dans Claude'); } return true; }
       case 'f-open': S.fmtOpen = S.fmtOpen === id ? '' : id; render(); return true;
       case 'f-acc': S.fmtAcc = id; render(); return true;
       case 'f-per': S.fmtPer = Number(id); render(); return true;
