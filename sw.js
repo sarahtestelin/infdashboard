@@ -1,5 +1,5 @@
-const CACHE = 'miahso-v16';
-const ASSETS = ['./', 'index.html', 'style.css', 'config.js', 'app.js', 'extras.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
+const CACHE = 'miahso-v17';
+const ASSETS = ['./', 'index.html', 'style.css', 'config.js', 'app.js', 'extras.js', 'studio.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
