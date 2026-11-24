@@ -1,6 +1,6 @@
 'use strict';
 /* Miahso_ Dashboard — extras : synchro Supabase, YouTube, import CSV, réglages */
-const APP_VERSION = '15';
+const APP_VERSION = '16';
 const SESS = 'miahso-session', CFGK = 'miahso-cfg', YTLAST = 'miahso-yt-last', SYNCED = 'miahso-synced';
 const lsGet = k => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
 const lsSet = (k, v) => { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* ignore */ } };
@@ -427,10 +427,7 @@ function goalsPage() {
         <label>Abonnés actuels<input id="g-f-${id}" type="number" min="0" value="${esc(a.followers)}"></label>
         <label>Objectif d'abonnés<input id="g-g-${id}" type="number" min="0" value="${esc(a.goal)}"></label>
         ${isYT(a) ? `<label>Shorts visés par semaine<input id="g-ws-${id}" type="number" min="0" value="${esc(a.weekly_short != null ? a.weekly_short : (a.weekly == null ? '' : a.weekly))}"></label>
-        <label>Vidéos longues visées par semaine<input id="g-wl-${id}" type="number" min="0" value="${esc(a.weekly_long == null ? '' : a.weekly_long)}"></label>
-        <label>Objectif de vues Shorts (30 jours)<input id="g-vs-${id}" type="number" min="0" placeholder="ex. 20000" value="${esc(a.viewsGoal_short != null ? a.viewsGoal_short : (a.viewsGoal || ''))}"></label>
-        <label>Objectif de vues vidéos longues (30 jours)<input id="g-vl-${id}" type="number" min="0" placeholder="ex. 10000" value="${esc(a.viewsGoal_long || '')}"></label>` : `<label>Posts visés par semaine<input id="g-w-${id}" type="number" min="0" value="${esc(a.weekly == null ? '' : a.weekly)}"></label>
-        <label>Objectif de vues (30 jours)<input id="g-v-${id}" type="number" min="0" placeholder="ex. 20000" value="${esc(a.viewsGoal || '')}"></label>`}
+        <label>Vidéos longues visées par semaine<input id="g-wl-${id}" type="number" min="0" value="${esc(a.weekly_long == null ? '' : a.weekly_long)}"></label>` : `<label>Posts visés par semaine<input id="g-w-${id}" type="number" min="0" value="${esc(a.weekly == null ? '' : a.weekly)}"></label>`}
         <label>Couleur<input id="g-c-${id}" type="color" value="${esc(a.color || '#2b3a2f')}"></label>
         ${isYT(a) ? `<label>Chaîne YouTube (@nom ou lien)<input id="g-y-${id}" type="text" placeholder="@mon_pseudo" value="${esc(a.ytHandle || '')}"></label>` : ''}
       </div>
@@ -439,9 +436,6 @@ function goalsPage() {
   }).join('');
   const cats = (Array.isArray(st.cats) && st.cats.length ? st.cats : CATS).join('\n');
   return head('Objectifs & comptes', 'Règle tes objectifs, tes rythmes de publication, tes comptes et tes catégories. Tout est modifiable.', `<button class="btn" data-action="acc-add">${icon('plus')} Ajouter un compte</button>`) +
-    card2('Objectif global', `<p class="muted">Optionnel : si tu laisses vide, l'app additionne les objectifs de vues de chaque compte (ci-dessous).</p>
-      <label>Vues visées sur 30 jours<input id="g-views" type="number" min="0" placeholder="ex. 50000" value="${esc(st.viewsGoal || '')}"></label>
-      <div class="actions" style="justify-content:flex-start"><button class="btn" data-action="goals-save">Enregistrer</button></div>`) +
     `<h2 class="sub-h">Mes comptes</h2>` + accCards +
     card2('Catégories de contenu', `<p class="muted">Une catégorie par ligne. Elles servent à classer tes posts et à repérer ce qui marche.</p>
       <label>Catégories<textarea id="g-cats" rows="7">${esc(cats)}</textarea></label>
@@ -547,9 +541,9 @@ function extraAction(a, el) {
       }
       Object.assign(x, { name: val('g-n-' + id) || x.name, followers: f, goal: num('g-g-' + id), color: (document.getElementById('g-c-' + id) || {}).value || x.color });
       if (isYT(x)) {
-        Object.assign(x, { weekly_short: num('g-ws-' + id), weekly_long: num('g-wl-' + id), viewsGoal_short: num('g-vs-' + id), viewsGoal_long: num('g-vl-' + id) });
-        x.weekly = x.weekly_short + x.weekly_long; x.viewsGoal = x.viewsGoal_short + x.viewsGoal_long;
-      } else { x.weekly = num('g-w-' + id); x.viewsGoal = num('g-v-' + id); }
+        Object.assign(x, { weekly_short: num('g-ws-' + id), weekly_long: num('g-wl-' + id) });
+        x.weekly = x.weekly_short + x.weekly_long;
+      } else { x.weekly = num('g-w-' + id); }
       if (isYT(x) && document.getElementById('g-y-' + id)) x.ytHandle = val('g-y-' + id);
       save(); render(); toast('Compte enregistré'); break;
     }

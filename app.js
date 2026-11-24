@@ -259,9 +259,7 @@ function overview() {
   const byAcc = state.accounts.map(a => ({ n: cur.filter(i => i.accountId === a.id).length, a })).filter(x => x.n).map(x => `${x.n} ${esc(x.a.name.replace('YouTube · ', 'YT '))}`).join(' · ');
   const sub = cur.length ? `${who} a fait ${fmt(vC)} vues sur ${cur.length} post${cur.length > 1 ? 's' : ''} ces ${P} derniers jours. Voici ce qui marche et quoi faire ensuite.`
     : 'Ajoute tes posts publiés et leurs vues dans le calendrier pour voir apparaître tes statistiques.';
-  const sumGoals = state.accounts.reduce((s, x) => s + (Number(x.viewsGoal) || 0), 0);
-  const vg = A ? (Number(acc(A).viewsGoal) || 0) : (Number((state.settings || {}).viewsGoal) || sumGoals), vgP = vg * P / 30;
-  const vGoalTxt = vg ? `<br><small>Objectif : ${fmt(Math.round(vgP))} vues · ${Math.min(999, Math.round(vC / vgP * 100))} %</small>` : '';
+  const vGoalTxt = '';
   const tiles = [
     tile('t-pink', `Vues, ${P} derniers jours`, 'eye', fmt(vC), chipPct(vC, vP), (vP ? `vs ${fmt(vP)} les ${P} jours d'avant` : 'Aucune période précédente à comparer') + vGoalTxt),
     tile('t-sage', 'Engagement moyen', 'heart', eC == null ? '—' : eC.toFixed(1).replace('.', ',') + ' %', eC != null && eP != null ? `<span class="chip ${eC >= eP ? 'up' : 'down'}">${eC >= eP ? '↑' : '↓'} ${Math.abs(eC - eP).toFixed(1).replace('.', ',')} pts</span>` : '', 'Likes + commentaires / vues'),
@@ -292,7 +290,7 @@ function overview() {
   const split = viewAccs().map(x => { const c = periodItems(P, 0, x.id), p = periodItems(P, P, x.id); return { x, n: c.length, v: sumViews(c), vp: sumViews(p), e: engagement(c) }; });
   const maxV = Math.max(1, ...split.map(s => s.v)), totV = split.reduce((s, r) => s + r.v, 0);
   const splitCard = `<section class="card"><h3>Vues par plateforme <small class="muted" style="font:400 .8rem var(--sans)">${P} derniers jours</small></h3>
-    ${split.map(r => `<div class="vsplit ${A === r.x.id ? 'on' : ''}" data-action="ovtab" data-id="${esc(r.x.id)}"><div class="vs-h"><span>${accDot(r.x.id)} ${esc(r.x.name)}</span><span><b>${fmt(r.v)}</b>${totV ? ` <small class="muted">${Math.round(r.v / totV * 100)} %</small>` : ''} ${chipPct(r.v, r.vp)}</span></div><div class="vs-bar"><i style="width:${r.v / maxV * 100}%;background:${r.x.color}"></i></div><small class="muted">${r.n} post${r.n > 1 ? 's' : ''}${r.n ? ` · ${fmt(Math.round(r.v / r.n))} vues / post` : ''}${r.e != null ? ` · ${r.e.toFixed(1).replace('.', ',')} % d'engagement` : ''}${Number(r.x.viewsGoal) ? ` · objectif ${fmt(Math.round(r.x.viewsGoal * P / 30))} (${Math.round(r.v / (r.x.viewsGoal * P / 30) * 100)} %)` : ''}</small></div>`).join('')}
+    ${split.map(r => `<div class="vsplit ${A === r.x.id ? 'on' : ''}" data-action="ovtab" data-id="${esc(r.x.id)}"><div class="vs-h"><span>${accDot(r.x.id)} ${esc(r.x.name)}</span><span><b>${fmt(r.v)}</b>${totV ? ` <small class="muted">${Math.round(r.v / totV * 100)} %</small>` : ''} ${chipPct(r.v, r.vp)}</span></div><div class="vs-bar"><i style="width:${r.v / maxV * 100}%;background:${r.x.color}"></i></div><small class="muted">${r.n} post${r.n > 1 ? 's' : ''}${r.n ? ` · ${fmt(Math.round(r.v / r.n))} vues / post` : ''}${r.e != null ? ` · ${r.e.toFixed(1).replace('.', ',')} % d'engagement` : ''}</small></div>`).join('')}
     <small class="muted" style="display:block;margin-top:8px">Touche une plateforme pour filtrer toute la page.</small></section>`;
   return head(`${greeting()}, Sarah`, sub, `<button class="btn" data-action="export">${icon('down')} Exporter</button>`) +
     startCard() + todoCard() + `<div class="bar-tools">${ovPills}${periodPills()}</div><div class="tiles">${tiles}</div>
