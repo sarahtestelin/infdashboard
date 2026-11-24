@@ -137,7 +137,18 @@ function toast(msg) {
   toast.t = setTimeout(() => el.classList.remove('show'), 2800);
 }
 
-const acc = id => state.accounts.find(a => a.id === id);
+/* Shorts / vidéos longues : une chaîne YouTube se découpe en deux « comptes virtuels » (id = chaîne:short ou chaîne:long) */
+const FMT_LABEL = { short: 'Shorts', long: 'Vidéos longues' };
+const splitOn = a => typeof isYT === 'function' && isYT(a);
+const itemFmt = i => i.fmt === 'short' ? 'short' : 'long';
+function virt(a, f) {
+  const w = f === 'short' ? (a.weekly_short != null ? a.weekly_short : a.weekly) : a.weekly_long;
+  const v = f === 'short' ? (a.viewsGoal_short != null ? a.viewsGoal_short : a.viewsGoal) : a.viewsGoal_long;
+  return Object.assign({}, a, { id: a.id + ':' + f, base: a.id, fmt: f, name: a.name + ' · ' + FMT_LABEL[f], weekly: Number(w) || 0, viewsGoal: Number(v) || 0 });
+}
+const acc = id => { const p = String(id).split(':'), a = state.accounts.find(x => x.id === p[0]); return a && p[1] ? virt(a, p[1]) : a; };
+const viewAccs = () => state.accounts.flatMap(a => splitOn(a) ? [virt(a, 'short'), virt(a, 'long')] : [a]);
+const matchAcc = (i, id) => { const p = String(id).split(':'); return i.accountId === p[0] && (!p[1] || itemFmt(i) === p[1]); };
 const accName = id => (acc(id) || { name: 'Non défini' }).name;
 const accColor = id => (acc(id) || { color: '#b8b3a3' }).color;
 
@@ -145,7 +156,7 @@ const accColor = id => (acc(id) || { color: '#b8b3a3' }).color;
 const published = () => state.items.filter(i => i.status === 'publié' && i.date);
 function periodItems(days, offset, accId) {
   const to = addDays(today(), -(offset || 0)), from = addDays(to, -days + 1);
-  return published().filter(i => i.date >= from && i.date <= to && (!accId || i.accountId === accId));
+  return published().filter(i => i.date >= from && i.date <= to && (!accId || matchAcc(i, accId)));
 }
 const withViews = a => a.filter(i => Number(i.views) > 0);
 const sumViews = a => a.reduce((s, i) => s + (Number(i.views) || 0), 0);
@@ -164,7 +175,7 @@ function followersAt(accId, date) {
 function netFollowers(days, onlyAcc) {
   const start = addDays(today(), -days);
   let tot = 0; const parts = [];
-  state.accounts.filter(a => !onlyAcc || a.id === onlyAcc).forEach(a => {
+  state.accounts.filter(a => !onlyAcc || a.id === String(onlyAcc).split(':')[0]).forEach(a => {
     const f0 = followersAt(a.id, start);
     if (f0 == null) return;
     const g = a.followers - f0;
@@ -177,7 +188,7 @@ function weeklyViews(n, accId) {
   const m0 = mondayOf(today()), out = [];
   for (let k = n - 1; k >= 0; k--) {
     const s = addDays(m0, -7 * k), e = addDays(s, 6);
-    out.push({ s, v: sumViews(published().filter(i => i.date >= s && i.date <= e && (!accId || i.accountId === accId))) });
+    out.push({ s, v: sumViews(published().filter(i => i.date >= s && i.date <= e && (!accId || matchAcc(i, accId)))) });
   }
   return out;
 }
@@ -266,8 +277,8 @@ function overview() {
   const done = published().filter(i => i.date >= addDays(today(), -27)).length;
   const pct = target ? Math.min(100, done / target * 100) : 0;
   const [w0, w1] = [mondayOf(today()), addDays(mondayOf(today()), 6)];
-  const rhythm = state.accounts.map(a => {
-    const wkI = state.items.filter(i => i.accountId === a.id && i.date >= w0 && i.date <= w1);
+  const rhythm = viewAccs().map(a => {
+    const wkI = state.items.filter(i => matchAcc(i, a.id) && i.date >= w0 && i.date <= w1);
     const pub = wkI.filter(i => i.status === 'publié').length, plan = wkI.filter(i => i.status !== 'publié').length, t = Number(a.weekly) || 0;
     return `<div class="row"><span>${accDot(a.id)} ${esc(a.name)}</span><span><span class="pill ${pub >= t && t > 0 ? 'ok' : ''}">${pub}/${t} publié${pub > 1 ? 's' : ''}</span>${plan ? ` <span class="pill plan">${plan} prévu${plan > 1 ? 's' : ''}</span>` : ''}</span></div>`;
   }).join('');
@@ -277,8 +288,8 @@ function overview() {
     return `<div class="row" data-action="edit-acc" data-id="${esc(a.id)}" style="cursor:pointer;flex-direction:column;align-items:stretch;gap:6px"><div style="display:flex;justify-content:space-between"><span>${accDot(a.id)} ${esc(a.name)}</span><small class="muted">${fmt(a.followers)} / ${fmt(a.goal)}</small></div><div style="height:8px;background:#e7e1d1;border-radius:99px;overflow:hidden"><i style="display:block;height:100%;width:${p.toFixed(1)}%;background:${a.color};border-radius:99px"></i></div></div>`;
   }).join('');
 
-  const ovPills = `<div class="seg"><button data-action="ovtab" data-id="all" class="${!A ? 'on' : ''}">Toutes</button>${state.accounts.map(x => `<button data-action="ovtab" data-id="${esc(x.id)}" class="${A === x.id ? 'on' : ''}"><span class="dot" style="--c:${x.color}"></span>${esc(x.name.replace('YouTube · ', 'YT '))}</button>`).join('')}</div>`;
-  const split = state.accounts.map(x => { const c = periodItems(P, 0, x.id), p = periodItems(P, P, x.id); return { x, n: c.length, v: sumViews(c), vp: sumViews(p), e: engagement(c) }; });
+  const ovPills = `<div class="seg"><button data-action="ovtab" data-id="all" class="${!A ? 'on' : ''}">Toutes</button>${viewAccs().map(x => `<button data-action="ovtab" data-id="${esc(x.id)}" class="${A === x.id ? 'on' : ''}"><span class="dot" style="--c:${x.color}"></span>${esc(x.name.replace('YouTube · ', 'YT ').replace('Vidéos longues', 'Longues'))}</button>`).join('')}</div>`;
+  const split = viewAccs().map(x => { const c = periodItems(P, 0, x.id), p = periodItems(P, P, x.id); return { x, n: c.length, v: sumViews(c), vp: sumViews(p), e: engagement(c) }; });
   const maxV = Math.max(1, ...split.map(s => s.v)), totV = split.reduce((s, r) => s + r.v, 0);
   const splitCard = `<section class="card"><h3>Vues par plateforme <small class="muted" style="font:400 .8rem var(--sans)">${P} derniers jours</small></h3>
     ${split.map(r => `<div class="vsplit ${A === r.x.id ? 'on' : ''}" data-action="ovtab" data-id="${esc(r.x.id)}"><div class="vs-h"><span>${accDot(r.x.id)} ${esc(r.x.name)}</span><span><b>${fmt(r.v)}</b>${totV ? ` <small class="muted">${Math.round(r.v / totV * 100)} %</small>` : ''} ${chipPct(r.v, r.vp)}</span></div><div class="vs-bar"><i style="width:${r.v / maxV * 100}%;background:${r.x.color}"></i></div><small class="muted">${r.n} post${r.n > 1 ? 's' : ''}${r.n ? ` · ${fmt(Math.round(r.v / r.n))} vues / post` : ''}${r.e != null ? ` · ${r.e.toFixed(1).replace('.', ',')} % d'engagement` : ''}${Number(r.x.viewsGoal) ? ` · objectif ${fmt(Math.round(r.x.viewsGoal * P / 30))} (${Math.round(r.v / (r.x.viewsGoal * P / 30) * 100)} %)` : ''}</small></div>`).join('')}
@@ -311,14 +322,14 @@ function overview() {
 }
 
 function platforms() {
-  if (!acc(platTab)) platTab = state.accounts[0].id;
+  if (!acc(platTab)) platTab = viewAccs()[0].id;
   const a = acc(platTab), P = period;
   const cur = periodItems(P, 0, a.id), prev = periodItems(P, P, a.id), wv = withViews(cur), wvp = withViews(prev);
   const avg = wv.length ? sumViews(wv) / wv.length : 0, avgP = wvp.length ? sumViews(wvp) / wvp.length : 0;
   const e = engagement(cur);
-  const f0 = followersAt(a.id, addDays(today(), -P)), g = f0 == null ? 0 : a.followers - f0;
+  const f0 = followersAt(a.base || a.id, addDays(today(), -P)), g = f0 == null ? 0 : a.followers - f0;
   const tiles = [
-    tile('t-pink', 'Abonnés', 'users', fmt(a.followers), `<span class="chip ${g >= 0 ? 'up' : 'down'}">${g >= 0 ? '+' : ''}${fmt(g)} en ${P} j</span>`, `Objectif : ${fmt(a.goal)} · touche pour modifier`, `data-action="edit-acc" data-id="${esc(a.id)}" style="cursor:pointer"`),
+    tile('t-pink', 'Abonnés', 'users', fmt(a.followers), `<span class="chip ${g >= 0 ? 'up' : 'down'}">${g >= 0 ? '+' : ''}${fmt(g)} en ${P} j</span>`, `Objectif : ${fmt(a.goal)} · touche pour modifier`, `data-action="edit-acc" data-id="${esc(a.base || a.id)}" style="cursor:pointer"`),
     tile('t-lime', 'Vues moyennes par post', 'eye', fmt(Math.round(avg)), chipPct(avg, avgP), `${wv.length} post${wv.length > 1 ? 's' : ''} sur ${P} jours`),
     tile('t-beige', 'Engagement moyen', 'heart', e == null ? '—' : e.toFixed(1).replace('.', ',') + ' %', '', 'Likes + commentaires / vues')
   ].join('');
@@ -330,7 +341,7 @@ function platforms() {
   const ins = insights(a.id);
   const insCard = (title, list, kind) => `<section class="card ins"><h3>${title}<span class="count ${kind}">${list.length}</span></h3>${list.map(x => `<div class="ins-row"><span class="ins-ic ${kind}">${icon(kind === 'ok' ? 'check' : 'x')}</span><div><b>${esc(x.t)}</b><p>${esc(x.d)}</p></div></div>`).join('') || '<p class="muted pad">Pas encore assez de données : il faut au moins 3 posts publiés avec leurs vues.</p>'}</section>`;
   return head('Plateformes', 'Ce qui marche et ce qui ne marche pas, par plateforme.', '') +
-    `<div class="bar-tools"><div class="seg">${state.accounts.map(x => `<button data-action="plat" data-id="${esc(x.id)}" class="${x.id === a.id ? 'on' : ''}"><span class="dot" style="--c:${x.color}"></span>${esc(x.name)}</button>`).join('')}</div>${periodPills()}</div>
+    `<div class="bar-tools"><div class="seg">${viewAccs().map(x => `<button data-action="plat" data-id="${esc(x.id)}" class="${x.id === a.id ? 'on' : ''}"><span class="dot" style="--c:${x.color}"></span>${esc(x.name)}</button>`).join('')}</div>${periodPills()}</div>
     <div class="tiles three">${tiles}</div>
     <div class="grid"><div><section class="card"><h3>Meilleurs posts <small class="muted" style="font:400 .8rem var(--sans)">${P} derniers jours</small></h3>
       <div class="trow h"><span>Contenu</span><span class="fmt">Type</span><span class="r">Vues</span><span class="r">Eng.</span></div>${rows || '<div class="empty">Aucun post publié avec des vues sur cette période.<br><br><button class="btn sm" data-action="add-item" data-status="publié" data-acc="' + esc(a.id) + '">' + icon('plus') + ' Ajouter un post publié</button></div>'}</section></div>
@@ -609,6 +620,7 @@ function itemForm(it, prefill) {
     { name: 'date', label: 'Date prévue ou de publication', type: 'date' },
     { name: 'accountId', label: 'Compte', type: 'select', options: accOptions() },
     { name: 'category', label: 'Type de contenu', type: 'select', options: catOptions() },
+    { name: 'fmt', label: 'Format YouTube (laisse vide si ce n\'est pas YouTube)', type: 'select', options: [['', '—'], ['short', 'Short'], ['long', 'Vidéo longue']] },
     { name: 'note', label: 'Notes (accroche, matériel, lien d\'inspiration…)', type: 'textarea' },
     { name: 'views', label: 'Vues (une fois publié)', type: 'number' },
     { name: 'likes', label: 'Likes', type: 'number' },
@@ -617,6 +629,7 @@ function itemForm(it, prefill) {
     if (out.status === 'publié' && !out.date) out.date = today();
     if (out.status !== before) it.moved = today();
     Object.assign(it, out);
+    if (out.fmt) it.fmtLocked = true; else delete it.fmtLocked;
     if (isNew) state.items.push(it);
   }, isNew ? null : () => { state.items = state.items.filter(x => x !== it); });
 }

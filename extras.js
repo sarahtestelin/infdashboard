@@ -1,6 +1,6 @@
 'use strict';
 /* Miahso_ Dashboard — extras : synchro Supabase, YouTube, import CSV, réglages */
-const APP_VERSION = '14';
+const APP_VERSION = '15';
 const SESS = 'miahso-session', CFGK = 'miahso-cfg', YTLAST = 'miahso-yt-last', SYNCED = 'miahso-synced';
 const lsGet = k => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
 const lsSet = (k, v) => { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* ignore */ } };
@@ -151,7 +151,7 @@ async function ytSyncAccount(a) {
   const ids = (pl.items || []).map(x => x.contentDetails.videoId);
   let n = 0;
   if (ids.length) {
-    const vids = await ytFetch('videos', { part: 'snippet,statistics', id: ids.join(',') });
+    const vids = await ytFetch('videos', { part: 'snippet,statistics,contentDetails', id: ids.join(',') });
     (vids.items || []).forEach(v => {
       const st = v.statistics || {}, id = 'yt-' + v.id;
       let it = state.items.find(x => x.id === id);
@@ -159,6 +159,7 @@ async function ytSyncAccount(a) {
         it = { id, title: v.snippet.title, category: 'Autre', accountId: a.id, status: 'publié', date: iso(new Date(v.snippet.publishedAt)), note: '', moved: today(), source: 'youtube' };
         state.items.push(it);
       }
+      if (!it.fmtLocked) { const dm = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec((v.contentDetails || {}).duration || ''); if (dm) it.fmt = ((+dm[1] || 0) * 3600 + (+dm[2] || 0) * 60 + (+dm[3] || 0)) <= 180 ? 'short' : 'long'; }
       it.views = Number(st.viewCount) || 0; it.likes = Number(st.likeCount) || 0; it.comments = Number(st.commentCount) || 0;
       n++;
     });
@@ -425,8 +426,11 @@ function goalsPage() {
         <label>Nom<input id="g-n-${id}" type="text" value="${esc(a.name)}"></label>
         <label>Abonnés actuels<input id="g-f-${id}" type="number" min="0" value="${esc(a.followers)}"></label>
         <label>Objectif d'abonnés<input id="g-g-${id}" type="number" min="0" value="${esc(a.goal)}"></label>
-        <label>Posts visés par semaine<input id="g-w-${id}" type="number" min="0" value="${esc(a.weekly == null ? '' : a.weekly)}"></label>
-        <label>Objectif de vues (30 jours)<input id="g-v-${id}" type="number" min="0" placeholder="ex. 20000" value="${esc(a.viewsGoal || '')}"></label>
+        ${isYT(a) ? `<label>Shorts visés par semaine<input id="g-ws-${id}" type="number" min="0" value="${esc(a.weekly_short != null ? a.weekly_short : (a.weekly == null ? '' : a.weekly))}"></label>
+        <label>Vidéos longues visées par semaine<input id="g-wl-${id}" type="number" min="0" value="${esc(a.weekly_long == null ? '' : a.weekly_long)}"></label>
+        <label>Objectif de vues Shorts (30 jours)<input id="g-vs-${id}" type="number" min="0" placeholder="ex. 20000" value="${esc(a.viewsGoal_short != null ? a.viewsGoal_short : (a.viewsGoal || ''))}"></label>
+        <label>Objectif de vues vidéos longues (30 jours)<input id="g-vl-${id}" type="number" min="0" placeholder="ex. 10000" value="${esc(a.viewsGoal_long || '')}"></label>` : `<label>Posts visés par semaine<input id="g-w-${id}" type="number" min="0" value="${esc(a.weekly == null ? '' : a.weekly)}"></label>
+        <label>Objectif de vues (30 jours)<input id="g-v-${id}" type="number" min="0" placeholder="ex. 20000" value="${esc(a.viewsGoal || '')}"></label>`}
         <label>Couleur<input id="g-c-${id}" type="color" value="${esc(a.color || '#2b3a2f')}"></label>
         ${isYT(a) ? `<label>Chaîne YouTube (@nom ou lien)<input id="g-y-${id}" type="text" placeholder="@mon_pseudo" value="${esc(a.ytHandle || '')}"></label>` : ''}
       </div>
@@ -541,7 +545,11 @@ function extraAction(a, el) {
         state.history = state.history.filter(h => !(h.accountId === id && h.date === today()));
         state.history.push({ date: today(), accountId: id, followers: f });
       }
-      Object.assign(x, { name: val('g-n-' + id) || x.name, followers: f, goal: num('g-g-' + id), weekly: num('g-w-' + id), viewsGoal: num('g-v-' + id), color: (document.getElementById('g-c-' + id) || {}).value || x.color });
+      Object.assign(x, { name: val('g-n-' + id) || x.name, followers: f, goal: num('g-g-' + id), color: (document.getElementById('g-c-' + id) || {}).value || x.color });
+      if (isYT(x)) {
+        Object.assign(x, { weekly_short: num('g-ws-' + id), weekly_long: num('g-wl-' + id), viewsGoal_short: num('g-vs-' + id), viewsGoal_long: num('g-vl-' + id) });
+        x.weekly = x.weekly_short + x.weekly_long; x.viewsGoal = x.viewsGoal_short + x.viewsGoal_long;
+      } else { x.weekly = num('g-w-' + id); x.viewsGoal = num('g-v-' + id); }
       if (isYT(x) && document.getElementById('g-y-' + id)) x.ytHandle = val('g-y-' + id);
       save(); render(); toast('Compte enregistré'); break;
     }
