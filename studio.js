@@ -2,7 +2,7 @@
    Formats gagnants, rythme de publication, studio créatif (idées + textes), collaborations. */
 (function () {
   'use strict';
-  const S = { sig: '', rejected: null, fmtAcc: 'all', fmtPer: 90, tab: 'claude', ideas: [], gen: { topic: '', cat: '', plat: 'tiktok', out: [], itemId: '' }, copy: [], cFilter: 'active' };
+  const S = { fmtBy: 'tag', sig: '', rejected: null, fmtAcc: 'all', fmtPer: 90, tab: 'claude', ideas: [], gen: { topic: '', cat: '', plat: 'tiktok', out: [], itemId: '' }, copy: [], cFilter: 'active' };
   const stg = () => (state.settings = state.settings || {});
   const slots = () => (Array.isArray(stg().slots) ? stg().slots : []);
   const collabs = () => (Array.isArray(state.collabs) ? state.collabs : (state.collabs = []));
@@ -17,9 +17,10 @@
     const its = published().filter(i => i.date >= from && Number(i.views) > 0 && (S.fmtAcc === 'all' || matchAcc(i, S.fmtAcc)));
     const overall = its.length ? sumViews(its) / its.length : 0;
     const m = {};
-    its.forEach(i => { const k = i.category || 'Autre'; (m[k] = m[k] || []).push(i); });
+    its.forEach(i => { (S.fmtBy === 'tag' ? (i.tags && i.tags.length ? i.tags : ['Sans sous-type']) : [i.category || 'Autre']).forEach(k => { (m[k] = m[k] || []).push(i); }); });
     const rows = Object.entries(m).map(([k, v]) => ({ k, n: v.length, avg: sumViews(v) / v.length, eng: engagement(v), best: [...v].sort((a, b) => Number(b.views) - Number(a.views))[0] })).sort((a, b) => b.avg - a.avg);
     const max = Math.max(1, ...rows.map(r => r.avg));
+    const byPills = `<div class="seg"><button data-action="f-by" data-id="tag" class="${S.fmtBy === 'tag' ? 'on' : ''}">Par sous-type</button><button data-action="f-by" data-id="cat" class="${S.fmtBy === 'tag' ? '' : 'on'}">Par type</button></div>`;
     const accPills = `<div class="seg"><button data-action="f-acc" data-id="all" class="${S.fmtAcc === 'all' ? 'on' : ''}">Toutes</button>${viewAccs().map(x => `<button data-action="f-acc" data-id="${esc(x.id)}" class="${S.fmtAcc === x.id ? 'on' : ''}"><span class="dot" style="--c:${x.color}"></span>${esc(short(x.id))}</button>`).join('')}</div>`;
     const perPills = `<div class="seg">${[[30, '30 jours'], [90, '90 jours'], [365, '1 an'], [0, 'Tout']].map(([d, l]) => `<button data-action="f-per" data-id="${d}" class="${S.fmtPer === d ? 'on' : ''}">${l}</button>`).join('')}</div>`;
     const verdict = r => {
@@ -36,9 +37,9 @@
       tip = `<p class="muted">Ton format gagnant : <b>${esc(w.k)}</b>, ${fmt(Math.round(w.avg))} vues en moyenne${w.n >= 2 ? `, soit ${Math.round((w.avg / overall - 1) * 100)} % de plus que ta moyenne (${fmt(Math.round(overall))})` : ''}.${l.n >= 2 && l.avg < overall * 0.85 ? ` À repenser : <b>${esc(l.k)}</b>.` : ''}</p>`;
     }
     return head('Formats gagnants', 'Quels types de contenu (ASMR, GRWM, avis, vlog…) marchent le mieux, plateforme par plateforme.', '') +
-      `<div class="bar-tools">${accPills}${perPills}</div>` +
-      `<section class="card"><h3>Classement par type de contenu</h3>${tip}${list || '<div class="empty">Aucun post publié avec des vues sur cette période. Importe tes stats ou change la période.</div>'}
-      <small class="muted" style="display:block;margin-top:10px">Le type de contenu se choisit dans chaque post (« Type de contenu »). Tu peux modifier la liste dans Objectifs &amp; comptes.</small></section>`;
+      `<div class="bar-tools">${byPills}${accPills}${perPills}</div>` +
+      `<section class="card"><h3>Classement par ${S.fmtBy === 'tag' ? 'sous-type' : 'type'} de contenu</h3>${tip}${list || '<div class="empty">Aucun post publié avec des vues sur cette période. Importe tes stats ou change la période.</div>'}
+      <small class="muted" style="display:block;margin-top:10px">Un post peut avoir plusieurs sous-types (ex : Makeup + Roleplay) : il compte dans chacun. Ils se règlent dans chaque post ou se détectent dans Réglages. Tu peux modifier la liste dans Objectifs &amp; comptes.</small></section>`;
   }
 
   /* ======================  2. RYTHME DE PUBLICATION  ====================== */
@@ -350,6 +351,7 @@ ${bank || '(aucune)'}`;
   function act(a, el) {
     const id = el.dataset.id;
     switch (a) {
+      case 'f-by': S.fmtBy = id; render(); return true;
       case 'f-acc': S.fmtAcc = id; render(); return true;
       case 'f-per': S.fmtPer = Number(id); render(); return true;
       case 'slot-add': slotForm(); return true;

@@ -210,7 +210,7 @@ function insights(accId) {
   const overall = sumViews(its) / its.length;
   const grp = fn => {
     const m = {};
-    its.forEach(i => { const k = fn(i); (m[k] = m[k] || []).push(i); });
+    its.forEach(i => { [].concat(fn(i)).forEach(k => { (m[k] = m[k] || []).push(i); }); });
     return Object.entries(m).filter(([, v]) => v.length >= 2).map(([k, v]) => ({ k, n: v.length, avg: sumViews(v) / v.length }));
   };
   grp(i => i.category).forEach(g => {
@@ -218,6 +218,12 @@ function insights(accId) {
     const base = `${g.n} posts · ${fmt(Math.round(g.avg))} vues en moyenne`;
     if (r >= 1.15) out.working.push({ t: g.k, d: `${base}, ${pct} % au-dessus de ta moyenne (${fmt(Math.round(overall))}).` });
     else if (r <= 0.85) out.notw.push({ t: g.k, d: `${base}, ${pct} % en dessous de ta moyenne (${fmt(Math.round(overall))}).` });
+  });
+  grp(i => (i.tags && i.tags.length ? i.tags : [])).forEach(g => {
+    const r = g.avg / overall, pct = Math.round(Math.abs(r - 1) * 100);
+    const base = `${g.n} posts · ${fmt(Math.round(g.avg))} vues en moyenne`;
+    if (r >= 1.15) out.working.push({ t: g.k, d: `${base}, ${pct} % au-dessus de ta moyenne.` });
+    else if (r <= 0.85) out.notw.push({ t: g.k, d: `${base}, ${pct} % en dessous de ta moyenne.` });
   });
   grp(i => DAY_LONG[at(i.date).getDay()]).forEach(g => {
     if (g.avg / overall >= 1.15) out.working.push({ t: 'Publier le ' + g.k, d: `${g.n} posts · ${fmt(Math.round(g.avg))} vues en moyenne ce jour-là.` });
@@ -612,19 +618,22 @@ function itemForm(it, prefill) {
   const isNew = !it;
   it = it || Object.assign({ id: uid(), title: '', category: 'ASMR', accountId: '', status: 'idée', date: '', views: '', likes: '', comments: '', note: '', moved: today() }, prefill || {});
   const before = it.status;
+  const vals = Object.assign({}, it, { tagsTxt: (it.tags || []).join(', ') });
   form(isNew ? 'Nouveau contenu' : 'Modifier le contenu', [
     { name: 'title', label: 'Titre / sujet', type: 'text', required: true },
     { name: 'status', label: 'Étape', type: 'select', options: STATUS.map(s => [s, s[0].toUpperCase() + s.slice(1)]) },
     { name: 'date', label: 'Date prévue ou de publication', type: 'date' },
     { name: 'accountId', label: 'Compte', type: 'select', options: accOptions() },
     { name: 'category', label: 'Type de contenu', type: 'select', options: catOptions() },
+    { name: 'tagsTxt', label: 'Sous-types, plusieurs possibles, séparés par des virgules (ex : Makeup, Roleplay, Tapping)', type: 'text' },
     { name: 'fmt', label: 'Format YouTube (laisse vide si ce n\'est pas YouTube)', type: 'select', options: [['', '—'], ['short', 'Short'], ['long', 'Vidéo longue']] },
     { name: 'note', label: 'Notes (accroche, matériel, lien d\'inspiration…)', type: 'textarea' },
     { name: 'views', label: 'Vues (une fois publié)', type: 'number' },
     { name: 'likes', label: 'Likes', type: 'number' },
     { name: 'comments', label: 'Commentaires', type: 'number' }
-  ], it, out => {
+  ], vals, out => {
     if (out.status === 'publié' && !out.date) out.date = today();
+    const tg = out.tagsTxt; delete out.tagsTxt; it.tags = parseTags(tg); it.tagsLocked = true;
     if (out.status !== before) it.moved = today();
     Object.assign(it, out);
     if (out.fmt) it.fmtLocked = true; else delete it.fmtLocked;

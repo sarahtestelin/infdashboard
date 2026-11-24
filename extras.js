@@ -1,6 +1,6 @@
 'use strict';
 /* Miahso_ Dashboard — extras : synchro Supabase, YouTube, import CSV, réglages */
-const APP_VERSION = '21';
+const APP_VERSION = '22';
 
 /* ---------- détection automatique du type de contenu ---------- */
 const CAT_RULES = [
@@ -10,9 +10,33 @@ const CAT_RULES = [
   [/vlog|lifestyle|journ[ée]e|day in my life|ditl|voyage|cozy|rangement|organisation|d[ée]co|cuisine|recette|shopping|haul|jeu vid[ée]o|gaming|\bgame\b|jeux|sims|animal crossing|minecraft|nintendo|ps5|switch|zelda|pok[ée]mon|semaine|weekly|routine/i, /lifestyle/i],
   [/asmr|chuchot|whisper|tapping|trigger|roleplay|role play|cr[ée]pitement|mouth sounds|bruits de bouche|dormir|sleep|relax|tingle|satisfai|slime|scratching|brushing/i, /asmr/i]
 ];
+const TAG_RULES = [
+  ['Makeup', /make-?up|maquill|fond de teint|rouge [àa] l[èe]vres|gloss|palette|blush|mascara|eyeliner|contouring|fard/i],
+  ['Skincare', /skin ?care|soin (du )?visage|peau|s[ée]rum|cr[èe]me|masque|nettoyage|gommage|visage|facial/i],
+  ['Roleplay', /role ?play|jeu de r[ôo]le|\bpov\b|institut|esth[ée]ticienne|m[ée]decin|cabinet|coiffeuse|personal attention|attention personnelle/i],
+  ['Coiffure', /coiffure|cheveux|hair|brushing|brossage|shampo|scalp|cuir chevelu|barbier/i],
+  ['Ongles', /ongles?|nails?|manucure|vernis/i],
+  ['Tapping', /tapping|tapotement|scratching|grattement|ongles sur/i],
+  ['Chuchotements', /chuchot|whisper|inaudible|mouth sounds|bruits de bouche/i],
+  ['Unboxing / Haul', /unboxing|haul|d[ée]ballage|colis|r[ée]ception/i],
+  ['Triggers / objets', /trigger|objets?|crépitement|cr[ée]pitement|slime|satisfai|textures?|squishy/i],
+  ['Sommeil', /dormir|sommeil|sleep|endormir|nuit|relax/i],
+  ['GRWM', /grwm|get ready|pr[ée]pare[- ]toi|pr[ée]pare avec moi/i],
+  ['Gaming', /gaming|jeu vid[ée]o|\bgame\b|sims|animal crossing|minecraft|nintendo|ps5|zelda|pok[ée]mon|manette|clavier/i],
+  ['Pop culture / Avis', /film|s[ée]rie|netflix|anime|manga|disney|saison|trailer|k-?pop|critique|\bavis\b|review|livre|lecture|concert|harry potter|marvel/i],
+  ['Lifestyle / Vlog', /vlog|lifestyle|journ[ée]e|day in my life|voyage|cozy|rangement|d[ée]co|cuisine|recette|shopping|routine|semaine/i],
+  ['Nourriture', /mukbang|manger|eating|bouffe|gourmand|bonbon|g[âa]teau|snack|boisson/i],
+  ['Humour / Storytime', /humour|dr[ôo]le|blague|\bfail\b|storytime|story time|mdr|sketch|parodie|r[ée]action|chatting|discussion|faq/i]
+];
+function detectTags(text) {
+  const t = String(text || '');
+  return TAG_RULES.filter(([, re]) => re.test(t)).map(([k]) => k);
+}
+const parseTags = v => String(v || '').split(/[,;\n]/).map(x => x.trim()).filter(Boolean).filter((x, i, a) => a.indexOf(x) === i);
 function detectCat(text, learn) {
   const t = String(text || '').toLowerCase();
   if (!t.trim()) return null;
+  if (/asmr/.test(t) && CATS.includes('ASMR')) return 'ASMR';
   const score = {};
   CAT_RULES.forEach(([re, catRe]) => {
     const cat = CATS.find(c => catRe.test(c));
@@ -32,15 +56,18 @@ function learnCats() {
 }
 function detectAllCats() {
   const learn = learnCats(); let n = 0, tot = 0;
+  let nt = 0;
   state.items.forEach(i => {
+    const txt = (i.title || '') + ' ' + (i.note || '');
+    if (!i.tagsLocked && !(i.tags && i.tags.length)) { const tg = detectTags(txt); if (tg.length) { i.tags = tg; nt++; } }
     if (i.catLocked || (i.category && i.category !== 'Autre')) return;
     tot++;
-    const c = detectCat((i.title || '') + ' ' + (i.note || ''), learn);
+    const c = detectCat(txt, learn);
     if (c) { i.category = c; i.catAuto = true; n++; }
   });
-  return { n, tot };
+  return { n, tot, nt };
 }
-window.detectAllCats = detectAllCats;
+window.detectAllCats = detectAllCats; window.detectTags = detectTags; window.TAG_RULES = TAG_RULES;
 const SESS = 'miahso-session', CFGK = 'miahso-cfg', YTLAST = 'miahso-yt-last', SYNCED = 'miahso-synced';
 const lsGet = k => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
 const lsSet = (k, v) => { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* ignore */ } };
@@ -196,7 +223,7 @@ async function ytSyncAccount(a) {
       const st = v.statistics || {}, id = 'yt-' + v.id;
       let it = state.items.find(x => x.id === id);
       if (!it) {
-        it = { id, title: v.snippet.title, category: detectCat(v.snippet.title + ' ' + (v.snippet.description || '').slice(0, 400) + ' ' + ((v.snippet.tags || []).join(' ')), learnCats()) || 'Autre', accountId: a.id, status: 'publié', date: iso(new Date(v.snippet.publishedAt)), note: '', moved: today(), source: 'youtube' };
+        it = { id, tags: detectTags(v.snippet.title + ' ' + (v.snippet.description || '').slice(0, 400) + ' ' + ((v.snippet.tags || []).join(' '))), title: v.snippet.title, category: detectCat(v.snippet.title + ' ' + (v.snippet.description || '').slice(0, 400) + ' ' + ((v.snippet.tags || []).join(' ')), learnCats()) || 'Autre', accountId: a.id, status: 'publié', date: iso(new Date(v.snippet.publishedAt)), note: '', moved: today(), source: 'youtube' };
         state.items.push(it);
       }
       if (!it.fmtLocked) { const dm = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec((v.contentDetails || {}).duration || ''); if (dm) it.fmt = ((+dm[1] || 0) * 3600 + (+dm[2] || 0) * 60 + (+dm[3] || 0)) <= 180 ? 'short' : 'long'; }
@@ -350,7 +377,7 @@ function startCsv(file) {
           const stats = { views: col('views') >= 0 ? parseNum(row[col('views')]) : '', likes: col('likes') >= 0 ? parseNum(row[col('likes')]) : '', comments: col('comments') >= 0 ? parseNum(row[col('comments')]) : '' };
           const it = state.items.find(x => x.id === id);
           if (it) { Object.assign(it, stats); updated++; }
-          else { state.items.push(Object.assign({ id, title: title.slice(0, 140), category: detectCat(title, learnCats()) || 'Autre', accountId: out.acc, status: 'publié', date, note: '', moved: today(), source: 'csv' }, stats)); added++; }
+          else { state.items.push(Object.assign({ id, tags: detectTags(title), title: title.slice(0, 140), category: detectCat(title, learnCats()) || 'Autre', accountId: out.acc, status: 'publié', date, note: '', moved: today(), source: 'csv' }, stats)); added++; }
         });
         state.settings = Object.assign({}, state.settings, { imports: Object.assign({}, (state.settings || {}).imports, { [out.acc]: today() }) });
         setTimeout(() => toast(`Import : ${added} nouveau${added > 1 ? 'x' : ''}, ${updated} mis à jour, ${skipped} ignoré${skipped > 1 ? 's' : ''}${others ? ` (+ ${others} d'un autre compte)` : ''}`), 50);
@@ -532,7 +559,7 @@ function settings() {
   const card = (t, body) => `<section class="card"><h3>${t}</h3>${body}</section>`;
   return head('Réglages', 'Synchro entre appareils, YouTube automatique, import de tes stats et installation.', '') +
     card('Synchronisation entre appareils', syncBody) + card('YouTube automatique', ytBody) + card('Google Agenda', gBody) + card('Importer des stats TikTok / Instagram (CSV)', csvBody) +
-    card('Types de contenu', `<p class="muted">Les posts importés sont rangés automatiquement (ASMR, Lifestyle, Pop culture…) d'après leur titre et leur description. Ceux que tu as rangés toi-même ne sont jamais modifiés.</p><div class="actions" style="justify-content:flex-start"><button class="btn ghost" data-action="cat-detect">Détecter les types de contenu</button></div>`) +
+    card('Types de contenu', `<p class="muted">Chaque post reçoit un type (ASMR…) et plusieurs sous-types (Makeup, Roleplay, Tapping…) d'après son titre et sa description. Ce que tu as réglé toi-même n'est jamais modifié.</p><div class="actions" style="justify-content:flex-start"><button class="btn ghost" data-action="cat-detect">Détecter les types de contenu</button></div>`) +
     card('Installer l\'application', installBody) +
     card('Mise à jour de l\'app', `<p class="muted">Version ${APP_VERSION}. Si une nouveauté n'apparaît pas, recharge la dernière version : tes données ne sont pas touchées.</p><div class="actions" style="justify-content:flex-start"><button class="btn ghost" data-action="app-update">Recharger la dernière version</button></div>`) +
     card('Sauvegarde', `<p class="muted">Une copie de tes données au format JSON, à garder en lieu sûr.</p><div class="actions" style="justify-content:flex-start"><button class="btn ghost" data-action="export">Exporter</button><button class="btn ghost" data-action="import">Importer</button></div>`) +
@@ -639,7 +666,7 @@ function extraAction(a, el) {
       syncGoogle(true).then(m => { toast(m || 'Déjà en cours'); }).catch(e => { GC.msg = 'Erreur : ' + e.message; toast('Google Agenda : ' + e.message); }).finally(() => { if (page === 'settings') render(); });
       break;
     }
-    case 'cat-detect': { const r = detectAllCats(); save(); render(); toast(r.tot ? `${r.n} post${r.n > 1 ? 's' : ''} rangé${r.n > 1 ? 's' : ''} sur ${r.tot} en « Autre »` : 'Rien à ranger : aucun post en « Autre ».'); break; }
+    case 'cat-detect': { const r = detectAllCats(); save(); render(); toast(`${r.n} type${r.n > 1 ? 's' : ''} et ${r.nt} post${r.nt > 1 ? 's' : ''} avec sous-types détectés`); break; }
     case 'csv-pick': document.getElementById('csvFile').click(); break;
     case 'csv-clear': {
       const n = state.items.filter(i => i.source === 'csv').length;
