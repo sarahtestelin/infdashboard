@@ -2,7 +2,7 @@
    Veille concurrentielle : ce qui marche chez les autres, tendances qui reviennent, benchmark. */
 (function () {
   'use strict';
-  const S = { per: 30, busy: false, disc: null, discBusy: false, hot: null, hotBusy: false, hotFmt: '' };
+  const S = { per: 30, busy: false, disc: null, discBusy: false, hot: null, hotBusy: false, hotFmt: '', plat: '', tagF: '' };
   /* Créatrices de ta niche repérées sur le web (handles YouTube à vérifier : « Actualiser » signale ceux qui sont introuvables) */
   const SUGGESTED = [
     { name: 'Alteanne', platform: 'TikTok', ytHandle: '@alteanne', note: 'ASMR lifestyle française, ~3,4 M sur TikTok, 5 vidéos/semaine, objets du quotidien et produits du moment. À vérifier : handle YouTube.' },
@@ -48,10 +48,10 @@
     } catch (e) { toast('Recherche impossible : ' + e.message); }
     S.hotBusy = false; render();
   }
-  function trendPrompt() {
+  function trendPrompt(focus) {
     const mine = {}; state.items.filter(i => i.status === 'publié' && Number(i.views) > 0).forEach(i => (i.tags || []).forEach(t => { (mine[t] = mine[t] || []).push(Number(i.views)); }));
     const best = Object.entries(mine).map(([t, a]) => [t, a.reduce((x, y) => x + y, 0) / a.length]).sort((a, b) => b[1] - a[1]).slice(0, 5).map(x => x[0]);
-    return `Je suis Miahso_, créatrice ASMR française (TikTok, Instagram, YouTube). Fais une recherche web et trouve les contenus ASMR (et ASMR + lifestyle / makeup / roleplay / gaming / pop culture) qui fonctionnent le mieux en ce moment, TikTok, Instagram et YouTube, créatrices connues ou non, en français en priorité.${best.length ? ` Mes sous-types qui marchent le mieux : ${best.join(', ')}.` : ''}\n\nRéponds UNIQUEMENT avec une ligne par contenu, au format exact :\nPlateforme | Titre ou description du contenu | Vues approximatives (nombre) | Lien | Sous-types (séparés par des virgules)\n\nDonne 15 à 20 lignes variées (plusieurs sous-types, plusieurs plateformes). Ne mets que des contenus que tu as réellement trouvés, avec leur lien.`;
+    return `Je suis Miahso_, créatrice ASMR française (TikTok, Instagram, YouTube). Fais une recherche web et trouve les contenus ASMR${focus ? ' de type « ' + focus + ' »' : ' (et ASMR + lifestyle / makeup / roleplay / gaming / pop culture)'} qui fonctionnent le mieux en ce moment, TikTok, Instagram et YouTube, créatrices connues ou non, en français en priorité.${best.length ? ` Mes sous-types qui marchent le mieux : ${best.join(', ')}.` : ''}\n\nRéponds UNIQUEMENT avec une ligne par contenu, au format exact :\nPlateforme | Titre ou description du contenu | Vues approximatives (nombre) | Lien | Sous-types (séparés par des virgules)\n\nDonne 15 à 20 lignes variées (plusieurs sous-types, plusieurs plateformes). Ne mets que des contenus que tu as réellement trouvés, avec leur lien.`;
   }
   function importTrends() {
     form('Coller les tendances de Claude', [{ name: 'txt', label: 'Une ligne par contenu : Plateforme | Titre | Vues | Lien | Sous-types', type: 'textarea' }], { txt: '' }, out => {
@@ -73,7 +73,23 @@
     state.inspirations.unshift({ id: uid(), title: x.title, creatorId: own ? own.id : '', category: 'ASMR', platform: 'YouTube', link: ytLink(id), views: x.views, note: `${x.ch}${x.tags.length ? ' · ' + x.tags.join(', ') : ''}`, date: x.date, used: false });
     save(); render(); toast('Ajouté à ta veille.');
   };
-  const hotCard = () => `<section class="card"><h3>Ce qui marche en ce moment (toutes chaînes)</h3><p class="muted">Vidéos YouTube les plus vues des 45 derniers jours pour un sous-type, chez n'importe quelle chaîne. Pour TikTok et Instagram (pas d'accès automatique), utilise « Tendances TikTok / Instagram avec Claude » ci-dessus.</p><div class="actions" style="justify-content:flex-start">${TAG_RULES.map(([k]) => `<button class="btn ghost sm" data-action="cp-hot" data-id="ASMR ${esc(k.split(' / ')[0].toLowerCase())}">${esc(k)}</button>`).join('')}<button class="btn ghost sm" data-action="cp-hot" data-id="">Autre sujet</button></div>${S.hotBusy ? '<p class="muted">Recherche…</p>' : ''}${(S.hot || []).map(x => `<div class="ins-row"><div style="flex:1;min-width:0"><b>${esc(x.title)}</b><p>${esc(x.ch)} · ${fmt(x.views)} vues · ${x.fmt === 'short' ? 'Short' : 'Vidéo longue'} · ${esc(rel(x.date))}${x.tags.length ? ' · ' + esc(x.tags.join(', ')) : ''}</p></div><span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><a class="btn ghost sm" href="${ytLink(x.id)}" target="_blank" rel="noopener">Voir</a><button class="btn sm" data-action="cp-keep" data-id="${esc(x.id)}">Garder</button></span></div>`).join('')}</section>`;
+  const platOf = x => /tik/i.test(x.platform) ? 'TikTok' : /insta/i.test(x.platform) ? 'Instagram' : /you/i.test(x.platform) ? 'YouTube' : 'Autre';
+  function trendCard(all, row) {
+    const base = inPeriod(all), tg = x => detectTags(x.title + ' ' + (x.note || ''));
+    const byPlat = S.plat ? base.filter(x => platOf(x) === S.plat) : base;
+    const tagCount = {}; byPlat.forEach(x => tg(x).forEach(t => { tagCount[t] = (tagCount[t] || 0) + 1; }));
+    const flist = S.tagF ? byPlat.filter(x => tg(x).includes(S.tagF)) : byPlat;
+    const pc = p => p ? base.filter(x => platOf(x) === p).length : base.length;
+    const plats = `<div class="seg">${[['', 'Toutes'], ['YouTube', 'YouTube'], ['TikTok', 'TikTok'], ['Instagram', 'Instagram']].map(([k, l]) => `<button data-action="cp-plat" data-id="${k}" class="${S.plat === k ? 'on' : ''}">${l} · ${pc(k)}</button>`).join('')}</div>`;
+    const tags = `<div class="chips"><button class="chipb ${S.tagF ? '' : 'on'}" data-action="cp-tag" data-id="">Tous les sous-types</button>${TAG_RULES.map(([k]) => `<button class="chipb ${S.tagF === k ? 'on' : ''}" data-action="cp-tag" data-id="${esc(k)}">${esc(k)}${tagCount[k] ? ' · ' + tagCount[k] : ''}</button>`).join('')}</div>`;
+    const f = S.tagF;
+    const yt = `<button class="btn ghost" data-action="cp-hot" data-id="ASMR ${esc(f ? f.split(' / ')[0].toLowerCase() : '')}">${icon('up')} Chercher ${f ? '« ' + esc(f) + ' » ' : ''}sur YouTube</button>`;
+    return `<section class="card"><h3>Ce qui marche en ce moment <small class="muted" style="font:400 .8rem var(--sans)">toutes plateformes</small></h3>${plats}${tags}
+      <div class="actions" style="justify-content:flex-start;margin:10px 0">${yt}<button class="btn" data-action="cp-tprompt" data-id="${esc(f)}">Chercher ${f ? '« ' + esc(f) + ' » ' : ''}sur TikTok / Instagram avec Claude</button><button class="btn ghost" data-action="cp-timport">Coller les résultats</button></div>
+      <small class="muted" style="display:block;margin-bottom:6px">YouTube se cherche directement ici (clé YouTube dans Réglages). TikTok et Instagram n'ont pas d'accès automatique : Claude fait la recherche web, tu colles ses résultats, et ils s'affichent ici avec le reste.</small>
+      ${flist.slice(0, 20).map(row).join('') || '<div class="empty">Rien pour ce filtre. Lance une recherche ci-dessus ou ajoute un post avec « Post qui cartonne ».</div>'}</section>${hotCard()}`;
+  }
+  const hotCard = () => (S.hotBusy || (S.hot || []).length) ? `<section class="card"><h3>Résultats YouTube <small class="muted" style="font:400 .8rem var(--sans)">45 derniers jours, les plus vues</small></h3>${S.hotBusy ? '<p class="muted">Recherche…</p>' : ''}${(S.hot || []).map(x => `<div class="ins-row"><div style="flex:1;min-width:0"><b>${esc(x.title)}</b><p>${esc(x.ch)} · ${fmt(x.views)} vues · ${x.fmt === 'short' ? 'Short' : 'Vidéo longue'} · ${esc(rel(x.date))}${x.tags.length ? ' · ' + esc(x.tags.join(', ')) : ''}</p></div><span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><a class="btn ghost sm" href="${ytLink(x.id)}" target="_blank" rel="noopener">Voir</a><button class="btn sm" data-action="cp-keep" data-id="${esc(x.id)}">Garder</button></span></div>`).join('')}</section>` : '';
   const tagCard = () => {
     const outs = inPeriod(outliers()), m = {};
     outs.forEach(x => detectTags(x.title + ' ' + (x.note || '')).forEach(t => { m[t] = (m[t] || 0) + 1; }));
@@ -204,10 +220,10 @@
     if (kw.length) insights.push(`Thèmes qui reviennent : ${kw.slice(0, 5).map(k => k[0]).join(', ')}.`);
     const kwCard = `<section class="card"><h3>Ce qui revient dans les contenus qui marchent</h3>${insights.length ? insights.map(t => `<p class="muted" style="margin:6px 0">${esc(t)}</p>`).join('') : '<p class="muted">Pas encore assez de données. Ajoute des créatrices avec leur chaîne YouTube et note les posts TikTok / Instagram qui cartonnent.</p>'}${kw.length ? `<div class="chips">${kw.map(([w, n]) => `<span class="chipb" style="cursor:default">${esc(w)} · ${n}</span>`).join('')}</div>` : ''}</section>`;
     return head('Veille concurrentielle', 'Ce qui marche chez les autres, pour repérer les tendances et t\'en inspirer à ta façon.',
-      `<button class="btn ghost" data-action="cp-sync">${icon('up')} ${S.busy ? 'En cours…' : 'Actualiser YouTube'}</button> <button class="btn ghost" data-action="cp-prompt">Résumé pour Claude</button> <button class="btn" data-action="cp-tprompt">Tendances TikTok / Instagram avec Claude</button> <button class="btn ghost" data-action="cp-timport">Coller les résultats</button> <button class="btn ghost" data-action="cp-sugg">Créatrices repérées</button> <button class="btn" data-action="cp-add">${icon('plus')} Post qui cartonne (n'importe qui)</button>`) +
+      `<button class="btn ghost" data-action="cp-sync">${icon('up')} ${S.busy ? 'En cours…' : 'Actualiser YouTube'}</button> <button class="btn ghost" data-action="cp-prompt">Résumé pour Claude</button> <button class="btn ghost" data-action="cp-sugg">Créatrices repérées</button> <button class="btn" data-action="cp-add">${icon('plus')} Post qui cartonne (n'importe qui)</button>`) +
       `<div class="tiles">${tiles}</div><div class="bar-tools">${perPills}<button class="btn ghost sm" data-action="nav" data-id="watch">Gérer mes créatrices</button></div>` +
-      `<section class="card"><h3>Ce qui cartonne en ce moment</h3>${list.slice(0, 15).map(row).join('') || '<div class="empty">Rien pour l\'instant. Pour le suivi automatique YouTube : page Veille → fiche d\'une créatrice → champ « Chaîne YouTube », puis « Actualiser YouTube ». Pour TikTok et Instagram : « Post qui cartonne » (vue + ce qui marche).</div>'}</section>` +
-      hotCard() + kwCard + tagCard() + adviceCard() + benchCard;
+      trendCard(all, row) +
+      kwCard + tagCard() + adviceCard() + benchCard;
   }
 
   /* ---------- saisie manuelle (TikTok / Instagram) ---------- */
@@ -266,7 +282,9 @@ ${mine || '(pas de données)'}`;
       case 'cp-add': compForm(); return true;
       case 'cp-hot': { let q = id; if (!q) q = (prompt('Quel sujet ? (ex : ASMR cozy gaming)') || '').trim(); if (q) hotSearch(q, ''); return true; }
       case 'cp-keep': keepHot(id); return true;
-      case 'cp-tprompt': copyText(trendPrompt()); toast('Prompt copié : colle-le dans Claude, puis reviens « Coller les résultats »'); return true;
+      case 'cp-plat': S.plat = id; render(); return true;
+      case 'cp-tag': S.tagF = id; render(); return true;
+      case 'cp-tprompt': copyText(trendPrompt(id)); toast('Prompt copié : colle-le dans Claude, puis reviens « Coller les résultats »'); return true;
       case 'cp-timport': importTrends(); return true;
       case 'cp-sugg': addSuggested(); return true;
       case 'cp-disc': { let q = id; if (!q) q = (prompt('Que chercher ? (ex : ASMR cozy gaming)') || '').trim(); if (q) discover(q); return true; }

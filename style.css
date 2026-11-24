@@ -255,3 +255,4 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center}
 .chipb{border:1px solid var(--line);background:var(--card);border-radius:99px;padding:6px 12px;font:inherit;font-size:.82rem;cursor:pointer;color:inherit}
 .chipb:hover{border-color:var(--forest)}
 .gen{background:rgba(0,0,0,.03);border:1px solid var(--line);border-radius:14px;padding:12px;margin:8px 0;white-space:pre-wrap;font-size:.9rem;line-height:1.45}
+.chipb.on{background:var(--forest);color:#fff;border-color:var(--forest)}
