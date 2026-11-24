@@ -48,6 +48,24 @@
     } catch (e) { toast('Recherche impossible : ' + e.message); }
     S.hotBusy = false; render();
   }
+  function trendPrompt() {
+    const mine = {}; state.items.filter(i => i.status === 'publié' && Number(i.views) > 0).forEach(i => (i.tags || []).forEach(t => { (mine[t] = mine[t] || []).push(Number(i.views)); }));
+    const best = Object.entries(mine).map(([t, a]) => [t, a.reduce((x, y) => x + y, 0) / a.length]).sort((a, b) => b[1] - a[1]).slice(0, 5).map(x => x[0]);
+    return `Je suis Miahso_, créatrice ASMR française (TikTok, Instagram, YouTube). Fais une recherche web et trouve les contenus ASMR (et ASMR + lifestyle / makeup / roleplay / gaming / pop culture) qui fonctionnent le mieux en ce moment, TikTok, Instagram et YouTube, créatrices connues ou non, en français en priorité.${best.length ? ` Mes sous-types qui marchent le mieux : ${best.join(', ')}.` : ''}\n\nRéponds UNIQUEMENT avec une ligne par contenu, au format exact :\nPlateforme | Titre ou description du contenu | Vues approximatives (nombre) | Lien | Sous-types (séparés par des virgules)\n\nDonne 15 à 20 lignes variées (plusieurs sous-types, plusieurs plateformes). Ne mets que des contenus que tu as réellement trouvés, avec leur lien.`;
+  }
+  function importTrends() {
+    form('Coller les tendances de Claude', [{ name: 'txt', label: 'Une ligne par contenu : Plateforme | Titre | Vues | Lien | Sous-types', type: 'textarea' }], { txt: '' }, out => {
+      let n = 0;
+      String(out.txt || '').split(/\n/).forEach(l => {
+        const p = l.split('|').map(x => x.trim()); if (p.length < 2 || !p[1]) return;
+        const pf = /insta/i.test(p[0]) ? 'Instagram' : /tik/i.test(p[0]) ? 'TikTok' : /you|yt/i.test(p[0]) ? 'YouTube' : 'Autre';
+        const views = parseNum((p[2] || '').replace(/[^\d.,kKmM\s]/g, '')), tg = parseTags(p[4] || '');
+        if (p[3] && state.inspirations.some(i => i.link === p[3])) return;
+        state.inspirations.unshift({ id: uid(), title: p[1].slice(0, 160), creatorId: '', category: 'ASMR', platform: pf, link: /^https?:/.test(p[3] || '') ? p[3] : '', views: views || '', note: tg.join(', '), date: today(), used: false }); n++;
+      });
+      setTimeout(() => toast(n ? `${n} contenu${n > 1 ? 's' : ''} ajouté${n > 1 ? 's' : ''} à ta veille` : 'Aucune ligne reconnue : vérifie le format avec « | ».'), 50);
+    });
+  }
   const keepHot = id => {
     const x = (S.hot || []).find(h => h.id === id); if (!x) return;
     if (state.inspirations.some(i => i.link === ytLink(id))) { toast('Déjà dans ta veille.'); return; }
@@ -55,7 +73,7 @@
     state.inspirations.unshift({ id: uid(), title: x.title, creatorId: own ? own.id : '', category: 'ASMR', platform: 'YouTube', link: ytLink(id), views: x.views, note: `${x.ch}${x.tags.length ? ' · ' + x.tags.join(', ') : ''}`, date: x.date, used: false });
     save(); render(); toast('Ajouté à ta veille.');
   };
-  const hotCard = () => `<section class="card"><h3>Ce qui marche en ce moment (toutes chaînes)</h3><p class="muted">Cherche les vidéos YouTube les plus vues des 45 derniers jours sur un sujet, même chez des créatrices que tu ne suis pas. Pour TikTok et Instagram, utilise « Post qui cartonne ».</p><div class="actions" style="justify-content:flex-start"><button class="btn ghost" data-action="cp-hot" data-id="ASMR makeup roleplay">Makeup</button><button class="btn ghost" data-action="cp-hot" data-id="ASMR skincare soin visage">Skincare</button><button class="btn ghost" data-action="cp-hot" data-id="ASMR roleplay français">Roleplay</button><button class="btn ghost" data-action="cp-hot" data-id="ASMR cheveux coiffure">Coiffure</button><button class="btn ghost" data-action="cp-hot" data-id="ASMR gaming jeux vidéo">Gaming</button><button class="btn ghost" data-action="cp-hot" data-id="">Autre sujet</button></div>${S.hotBusy ? '<p class="muted">Recherche…</p>' : ''}${(S.hot || []).map(x => `<div class="ins-row"><div style="flex:1;min-width:0"><b>${esc(x.title)}</b><p>${esc(x.ch)} · ${fmt(x.views)} vues · ${x.fmt === 'short' ? 'Short' : 'Vidéo longue'} · ${esc(rel(x.date))}${x.tags.length ? ' · ' + esc(x.tags.join(', ')) : ''}</p></div><span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><a class="btn ghost sm" href="${ytLink(x.id)}" target="_blank" rel="noopener">Voir</a><button class="btn sm" data-action="cp-keep" data-id="${esc(x.id)}">Garder</button></span></div>`).join('')}</section>`;
+  const hotCard = () => `<section class="card"><h3>Ce qui marche en ce moment (toutes chaînes)</h3><p class="muted">Vidéos YouTube les plus vues des 45 derniers jours pour un sous-type, chez n'importe quelle chaîne. Pour TikTok et Instagram (pas d'accès automatique), utilise « Tendances TikTok / Instagram avec Claude » ci-dessus.</p><div class="actions" style="justify-content:flex-start">${TAG_RULES.map(([k]) => `<button class="btn ghost sm" data-action="cp-hot" data-id="ASMR ${esc(k.split(' / ')[0].toLowerCase())}">${esc(k)}</button>`).join('')}<button class="btn ghost sm" data-action="cp-hot" data-id="">Autre sujet</button></div>${S.hotBusy ? '<p class="muted">Recherche…</p>' : ''}${(S.hot || []).map(x => `<div class="ins-row"><div style="flex:1;min-width:0"><b>${esc(x.title)}</b><p>${esc(x.ch)} · ${fmt(x.views)} vues · ${x.fmt === 'short' ? 'Short' : 'Vidéo longue'} · ${esc(rel(x.date))}${x.tags.length ? ' · ' + esc(x.tags.join(', ')) : ''}</p></div><span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><a class="btn ghost sm" href="${ytLink(x.id)}" target="_blank" rel="noopener">Voir</a><button class="btn sm" data-action="cp-keep" data-id="${esc(x.id)}">Garder</button></span></div>`).join('')}</section>`;
   const tagCard = () => {
     const outs = inPeriod(outliers()), m = {};
     outs.forEach(x => detectTags(x.title + ' ' + (x.note || '')).forEach(t => { m[t] = (m[t] || 0) + 1; }));
@@ -133,6 +151,7 @@
     });
     return out.sort((a, b) => b.date.localeCompare(a.date));
   }
+  window.compOutliers = () => outliers();
   const inPeriod = list => { const f = S.per ? addDays(today(), -S.per) : '0000'; return list.filter(x => x.date >= f); };
   const STOP = new Set('avec dans pour mais plus tout tous cette cette ceci cela comme sans sous très tres faire fait être etre avoir elle elles nous vous leur leurs mon mes ton tes son ses une des les aux par sur que qui quoi dont the and for you your with this that from have what asmr shorts short video vidéo vidéos videos youtube tiktok instagram reel'.split(' '));
   function keywords(list) {
@@ -185,10 +204,10 @@
     if (kw.length) insights.push(`Thèmes qui reviennent : ${kw.slice(0, 5).map(k => k[0]).join(', ')}.`);
     const kwCard = `<section class="card"><h3>Ce qui revient dans les contenus qui marchent</h3>${insights.length ? insights.map(t => `<p class="muted" style="margin:6px 0">${esc(t)}</p>`).join('') : '<p class="muted">Pas encore assez de données. Ajoute des créatrices avec leur chaîne YouTube et note les posts TikTok / Instagram qui cartonnent.</p>'}${kw.length ? `<div class="chips">${kw.map(([w, n]) => `<span class="chipb" style="cursor:default">${esc(w)} · ${n}</span>`).join('')}</div>` : ''}</section>`;
     return head('Veille concurrentielle', 'Ce qui marche chez les autres, pour repérer les tendances et t\'en inspirer à ta façon.',
-      `<button class="btn ghost" data-action="cp-sync">${icon('up')} ${S.busy ? 'En cours…' : 'Actualiser YouTube'}</button> <button class="btn ghost" data-action="cp-prompt">Résumé pour Claude</button> <button class="btn ghost" data-action="cp-sugg">Ajouter les créatrices de ma niche</button> <button class="btn" data-action="cp-add">${icon('plus')} Post qui cartonne (n'importe qui)</button>`) +
+      `<button class="btn ghost" data-action="cp-sync">${icon('up')} ${S.busy ? 'En cours…' : 'Actualiser YouTube'}</button> <button class="btn ghost" data-action="cp-prompt">Résumé pour Claude</button> <button class="btn" data-action="cp-tprompt">Tendances TikTok / Instagram avec Claude</button> <button class="btn ghost" data-action="cp-timport">Coller les résultats</button> <button class="btn ghost" data-action="cp-sugg">Créatrices repérées</button> <button class="btn" data-action="cp-add">${icon('plus')} Post qui cartonne (n'importe qui)</button>`) +
       `<div class="tiles">${tiles}</div><div class="bar-tools">${perPills}<button class="btn ghost sm" data-action="nav" data-id="watch">Gérer mes créatrices</button></div>` +
       `<section class="card"><h3>Ce qui cartonne en ce moment</h3>${list.slice(0, 15).map(row).join('') || '<div class="empty">Rien pour l\'instant. Pour le suivi automatique YouTube : page Veille → fiche d\'une créatrice → champ « Chaîne YouTube », puis « Actualiser YouTube ». Pour TikTok et Instagram : « Post qui cartonne » (vue + ce qui marche).</div>'}</section>` +
-      hotCard() + kwCard + tagCard() + adviceCard() + benchCard + discCard();
+      hotCard() + kwCard + tagCard() + adviceCard() + benchCard;
   }
 
   /* ---------- saisie manuelle (TikTok / Instagram) ---------- */
@@ -247,6 +266,8 @@ ${mine || '(pas de données)'}`;
       case 'cp-add': compForm(); return true;
       case 'cp-hot': { let q = id; if (!q) q = (prompt('Quel sujet ? (ex : ASMR cozy gaming)') || '').trim(); if (q) hotSearch(q, ''); return true; }
       case 'cp-keep': keepHot(id); return true;
+      case 'cp-tprompt': copyText(trendPrompt()); toast('Prompt copié : colle-le dans Claude, puis reviens « Coller les résultats »'); return true;
+      case 'cp-timport': importTrends(); return true;
       case 'cp-sugg': addSuggested(); return true;
       case 'cp-disc': { let q = id; if (!q) q = (prompt('Que chercher ? (ex : ASMR cozy gaming)') || '').trim(); if (q) discover(q); return true; }
       case 'cp-follow': { const c = (S.disc || []).find(x => x.id === id); if (c) { state.creators.push({ id: uid(), name: c.name, platform: 'YouTube', link: '', ytHandle: 'https://www.youtube.com/channel/' + c.id, observe: 'Trouvée via « Découvrir des chaînes ».' }); save(); render(); toast(c.name + ' ajoutée. Clique sur « Actualiser YouTube ».'); } return true; }
@@ -266,6 +287,6 @@ ${mine || '(pas de données)'}`;
     return base.slice(0, 6);
   };
   if (typeof SAVED_PAGE !== 'undefined' && SAVED_PAGE === 'compet') { page = 'compet'; }
-  if (stg().catDetected !== '22' && window.detectAllCats) { const r = detectAllCats(); stg().catDetected = '22'; if (r.n) save(); }
+  if (stg().catDetected !== '23' && window.detectAllCats) { const r = detectAllCats(); stg().catDetected = '23'; if (r.n) save(); }
   render();
 })();

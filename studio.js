@@ -12,15 +12,55 @@
   const DAYS = [1, 2, 3, 4, 5, 6, 0];
 
   /* ======================  1. FORMATS GAGNANTS  ====================== */
+  const DAYN = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
+  const avgV = a => a.length ? sumViews(a) / a.length : 0;
+  function adviceFor(r, overall, rows) {
+    const L = [], v = r.v.slice().sort((a, b) => Number(b.views) - Number(a.views)), n = v.length;
+    const q = overall ? r.avg / overall : 1;
+    const k3 = Math.max(1, Math.ceil(n / 3)), top = v.slice(0, k3), bot = n >= 2 ? v.slice(-k3) : [];
+    const tagsOfKey = S.fmtBy === 'tag' ? [r.k] : S.fmtBy === 'combo' ? r.k.split(' + ') : [];
+    const wd = {}; v.forEach(i => { const d = at(i.date).getDay(); (wd[d] = wd[d] || []).push(i); });
+    const days = Object.entries(wd).filter(([, a]) => a.length >= 1).map(([d, a]) => ({ d: +d, a: avgV(a), n: a.length })).sort((x, y) => y.a - x.a);
+    if (days.length >= 2 && days[0].a > days[days.length - 1].a * 1.3) L.push(`Jour : ce contenu marche mieux le ${DAYN[days[0].d]} (${fmt(Math.round(days[0].a))} vues en moy.) que le ${DAYN[days[days.length - 1].d]} (${fmt(Math.round(days[days.length - 1].a))}).`);
+    const sh = v.filter(i => itemFmt(i) === 'short'), lg = v.filter(i => itemFmt(i) === 'long');
+    if (sh.length && lg.length) L.push(`YouTube : ${fmt(Math.round(avgV(sh)))} vues en moy. en Short contre ${fmt(Math.round(avgV(lg)))} en vidéo longue. Mise sur ${avgV(sh) > avgV(lg) ? 'les Shorts' : 'la vidéo longue'} pour ce contenu.`);
+    const part = {}; v.forEach(i => (i.tags || []).forEach(t => { if (!tagsOfKey.includes(t)) (part[t] = part[t] || []).push(i); }));
+    const pr = Object.entries(part).filter(([, a]) => a.length >= 2).map(([t, a]) => ({ t, a: avgV(a), n: a.length })).sort((x, y) => y.a - x.a);
+    if (pr.length && pr[0].a > r.avg * 1.1) L.push(`Mélange : associé à « ${pr[0].t} », il monte à ${fmt(Math.round(pr[0].a))} vues (${pr[0].n} posts).`);
+    const worst = pr[pr.length - 1]; if (pr.length > 1 && worst.a < r.avg * 0.85) L.push(`Mélange : avec « ${worst.t} » ça baisse à ${fmt(Math.round(worst.a))} vues : à repenser ou à éviter.`);
+    const alone = v.filter(i => (i.tags || []).length <= 1);
+    if (alone.length && alone.length < n && tagsOfKey.length === 1) { const mixed = v.filter(i => (i.tags || []).length > 1); if (mixed.length) L.push(`Seul : ${fmt(Math.round(avgV(alone)))} vues, mélangé à un autre sous-type : ${fmt(Math.round(avgV(mixed)))}.`); }
+    if (n >= 3) {
+      const len = a => a.reduce((s, i) => s + String(i.title || '').length, 0) / a.length, lt = len(top), lb = len(bot);
+      if (Math.abs(lt - lb) > Math.max(8, lb * 0.25)) L.push(`Titre : tes meilleurs posts ont des titres ${lt < lb ? 'plus courts' : 'plus longs'} (~${Math.round(lt)} caractères contre ~${Math.round(lb)}).`);
+      const hb = new Set(bot.flatMap(i => i.hashtags || [])), ht = [...new Set(top.flatMap(i => i.hashtags || []))].filter(h => !hb.has(h)).slice(0, 4);
+      if (ht.length) L.push(`Hashtags des meilleurs posts absents des moins bons : ${ht.map(h => '#' + h).join(' ')}.`);
+    }
+    if (q < 0.85 && rows.length > 1 && rows[0].k !== r.k && S.fmtBy !== 'hash') L.push(`Ton format le plus fort est « ${rows[0].k} » (${fmt(Math.round(rows[0].avg))} vues) : essaie de le mélanger à celui-ci pour le relancer.`);
+    if (window.compOutliers && tagsOfKey.length) {
+      const ext = window.compOutliers().filter(x => tagsOfKey.every(t => detectTags(x.title + ' ' + (x.note || '')).includes(t))).sort((a, b) => b.views - a.views).slice(0, 2);
+      ext.forEach(x => L.push(`Chez les autres : « ${trunc(x.title, 70)} » (${fmt(x.views)} vues${x.ratio ? ', ×' + x.ratio.toFixed(1).replace('.', ',') + ' sa médiane' : ''}) : regarde l'accroche et le rythme.`));
+    }
+    if (!L.length) L.push(n < 3 ? 'Pas encore assez de posts dans ce format pour trouver ce qui change : publies-en 2 ou 3 de plus en variant le jour, le titre et les hashtags.' : 'Rien de net ne ressort : teste un seul changement à la fois (jour, accroche, mélange) pour voir ce qui joue.');
+    return L;
+  }
+  function openBox(r, overall, rows) {
+    const q = overall ? r.avg / overall : 1, head2 = r.n < 2 ? 'Pistes' : q >= 1.15 ? 'Pour répéter ce succès' : q <= 0.85 ? 'Pour le repenser' : 'Pour progresser';
+    const posts = r.v.slice().sort((a, b) => Number(b.views) - Number(a.views)).slice(0, 8).map(i => `<div style="margin:3px 0"><a href="#" data-action="edit-item" data-id="${esc(i.id)}" style="color:inherit"><b>${esc(trunc(i.title, 60))}</b></a> <small class="muted">${fmt(i.views)} vues · ${esc(dateFR(i.date))}${(i.tags || []).length ? ' · ' + esc(i.tags.join(' + ')) : ''}</small></div>`).join('');
+    return `<div style="margin-top:8px;padding:10px;background:rgba(0,0,0,.04);border-radius:10px"><small class="muted">Posts concernés</small>${posts}<div style="margin-top:8px"><b>${head2}</b>${adviceFor(r, overall, rows).map(t => `<p class="muted" style="margin:4px 0">• ${esc(t)}</p>`).join('')}</div></div>`;
+  }
   function formatsPage() {
     const from = S.fmtPer ? addDays(today(), -S.fmtPer + 1) : '0000-00-00';
     const its = published().filter(i => i.date >= from && Number(i.views) > 0 && (S.fmtAcc === 'all' || matchAcc(i, S.fmtAcc)));
     const overall = its.length ? sumViews(its) / its.length : 0;
     const m = {};
-    its.forEach(i => { (S.fmtBy === 'tag' ? (i.tags && i.tags.length ? i.tags : ['Sans sous-type']) : [i.category || 'Autre']).forEach(k => { (m[k] = m[k] || []).push(i); }); });
-    const rows = Object.entries(m).map(([k, v]) => ({ k, n: v.length, avg: sumViews(v) / v.length, eng: engagement(v), best: [...v].sort((a, b) => Number(b.views) - Number(a.views))[0] })).sort((a, b) => b.avg - a.avg);
+    const keysOf = i => S.fmtBy === 'tag' ? (i.tags && i.tags.length ? i.tags : ['Sans sous-type'])
+      : S.fmtBy === 'combo' ? [(i.tags && i.tags.length) ? i.tags.slice().sort().join(' + ') : 'Sans sous-type']
+      : S.fmtBy === 'hash' ? (i.hashtags || []).map(h => '#' + h) : [i.category || 'Autre'];
+    its.forEach(i => { keysOf(i).forEach(k => { (m[k] = m[k] || []).push(i); }); });
+    const rows = Object.entries(m).filter(([, v]) => S.fmtBy !== 'hash' || v.length >= 2).map(([k, v]) => ({ k, v, n: v.length, avg: sumViews(v) / v.length, eng: engagement(v), best: [...v].sort((a, b) => Number(b.views) - Number(a.views))[0] })).sort((a, b) => b.avg - a.avg);
     const max = Math.max(1, ...rows.map(r => r.avg));
-    const byPills = `<div class="seg"><button data-action="f-by" data-id="tag" class="${S.fmtBy === 'tag' ? 'on' : ''}">Par sous-type</button><button data-action="f-by" data-id="cat" class="${S.fmtBy === 'tag' ? '' : 'on'}">Par type</button></div>`;
+    const byPills = `<div class="seg">${[['tag', 'Sous-types'], ['combo', 'Mélanges'], ['hash', '#Hashtags'], ['cat', 'Types']].map(([k, l]) => `<button data-action="f-by" data-id="${k}" class="${S.fmtBy === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
     const accPills = `<div class="seg"><button data-action="f-acc" data-id="all" class="${S.fmtAcc === 'all' ? 'on' : ''}">Toutes</button>${viewAccs().map(x => `<button data-action="f-acc" data-id="${esc(x.id)}" class="${S.fmtAcc === x.id ? 'on' : ''}"><span class="dot" style="--c:${x.color}"></span>${esc(short(x.id))}</button>`).join('')}</div>`;
     const perPills = `<div class="seg">${[[30, '30 jours'], [90, '90 jours'], [365, '1 an'], [0, 'Tout']].map(([d, l]) => `<button data-action="f-per" data-id="${d}" class="${S.fmtPer === d ? 'on' : ''}">${l}</button>`).join('')}</div>`;
     const verdict = r => {
@@ -28,9 +68,9 @@
       const q = r.avg / overall;
       return q >= 1.15 ? '<span class="pill ok">Marche bien</span>' : q <= 0.85 ? '<span class="pill plan">À repenser</span>' : '<span class="pill">Dans la moyenne</span>';
     };
-    const list = rows.map(r => `<div class="vsplit" style="cursor:default"><div class="vs-h"><span><b>${esc(r.k)}</b> <small class="muted">${r.n} post${r.n > 1 ? 's' : ''}</small></span><span><b>${fmt(Math.round(r.avg))}</b> <small class="muted">vues / post</small></span></div>
+    const list = rows.map(r => `<div class="vsplit" style="cursor:pointer" data-action="f-open" data-id="${esc(r.k)}"><div class="vs-h"><span><b>${esc(r.k)}</b> <small class="muted">${r.n} post${r.n > 1 ? 's' : ''}</small></span><span><b>${fmt(Math.round(r.avg))}</b> <small class="muted">vues / post</small></span></div>
       <div class="vs-bar"><i style="width:${r.avg / max * 100}%;background:var(--forest)"></i></div>
-      <small class="muted">${r.eng != null ? r.eng.toFixed(1).replace('.', ',') + ' % d\'engagement · ' : ''}${verdict(r)}${r.best ? ` · meilleur : <a href="#" data-action="edit-item" data-id="${esc(r.best.id)}" style="color:inherit">${esc(trunc(r.best.title, 46))}</a> (${fmt(r.best.views)})` : ''}</small></div>`).join('');
+      <small class="muted">${r.eng != null ? r.eng.toFixed(1).replace('.', ',') + ' % d\'engagement · ' : ''}${verdict(r)}${r.best ? ` · meilleur : <a href="#" data-action="edit-item" data-id="${esc(r.best.id)}" style="color:inherit">${esc(trunc(r.best.title, 46))}</a> (${fmt(r.best.views)})` : ''}</small>${S.fmtOpen === r.k ? openBox(r, overall, rows) : `<small class="muted" style="display:block;margin-top:4px">Touche pour voir les posts et les conseils</small>`}</div>`).join('');
     let tip = '';
     if (rows.length >= 2 && overall) {
       const w = rows[0], l = rows[rows.length - 1];
@@ -38,7 +78,7 @@
     }
     return head('Formats gagnants', 'Quels types de contenu (ASMR, GRWM, avis, vlog…) marchent le mieux, plateforme par plateforme.', '') +
       `<div class="bar-tools">${byPills}${accPills}${perPills}</div>` +
-      `<section class="card"><h3>Classement par ${S.fmtBy === 'tag' ? 'sous-type' : 'type'} de contenu</h3>${tip}${list || '<div class="empty">Aucun post publié avec des vues sur cette période. Importe tes stats ou change la période.</div>'}
+      `<section class="card"><h3>Classement par ${({ tag: 'sous-type', combo: 'mélange de sous-types', hash: 'hashtag', cat: 'type' })[S.fmtBy] || 'type'}</h3>${tip}${list || '<div class="empty">Aucun post publié avec des vues sur cette période. Importe tes stats ou change la période.</div>'}
       <small class="muted" style="display:block;margin-top:10px">Un post peut avoir plusieurs sous-types (ex : Makeup + Roleplay) : il compte dans chacun. Ils se règlent dans chaque post ou se détectent dans Réglages. Tu peux modifier la liste dans Objectifs &amp; comptes.</small></section>`;
   }
 
@@ -351,7 +391,8 @@ ${bank || '(aucune)'}`;
   function act(a, el) {
     const id = el.dataset.id;
     switch (a) {
-      case 'f-by': S.fmtBy = id; render(); return true;
+      case 'f-by': S.fmtBy = id; S.fmtOpen = ''; render(); return true;
+      case 'f-open': S.fmtOpen = S.fmtOpen === id ? '' : id; render(); return true;
       case 'f-acc': S.fmtAcc = id; render(); return true;
       case 'f-per': S.fmtPer = Number(id); render(); return true;
       case 'slot-add': slotForm(); return true;

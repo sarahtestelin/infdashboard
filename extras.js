@@ -1,6 +1,6 @@
 'use strict';
 /* Miahso_ Dashboard — extras : synchro Supabase, YouTube, import CSV, réglages */
-const APP_VERSION = '22';
+const APP_VERSION = '23';
 
 /* ---------- détection automatique du type de contenu ---------- */
 const CAT_RULES = [
@@ -32,6 +32,8 @@ function detectTags(text) {
   const t = String(text || '');
   return TAG_RULES.filter(([, re]) => re.test(t)).map(([k]) => k);
 }
+const GENERIC_HASH = new Set(['fyp', 'foryou', 'foryoupage', 'pourtoi', 'pourtoipage', 'viral', 'viralvideo', 'trending', 'tiktok', 'fy', 'explore', 'reels', 'shorts', 'short', 'youtube', 'instagram', 'xyzbca', 'capcut', 'video', 'videos']);
+const extractHashtags = txt => (String(txt || '').match(/#[\p{L}\p{N}_]{2,40}/gu) || []).map(h => h.slice(1).toLowerCase()).filter(h => !GENERIC_HASH.has(h)).filter((h, i, a) => a.indexOf(h) === i).slice(0, 15);
 const parseTags = v => String(v || '').split(/[,;\n]/).map(x => x.trim()).filter(Boolean).filter((x, i, a) => a.indexOf(x) === i);
 function detectCat(text, learn) {
   const t = String(text || '').toLowerCase();
@@ -59,6 +61,7 @@ function detectAllCats() {
   let nt = 0;
   state.items.forEach(i => {
     const txt = (i.title || '') + ' ' + (i.note || '');
+    if (!i.hashtags) { const hh = extractHashtags(txt); if (hh.length) i.hashtags = hh; }
     if (!i.tagsLocked && !(i.tags && i.tags.length)) { const tg = detectTags(txt); if (tg.length) { i.tags = tg; nt++; } }
     if (i.catLocked || (i.category && i.category !== 'Autre')) return;
     tot++;
@@ -67,7 +70,7 @@ function detectAllCats() {
   });
   return { n, tot, nt };
 }
-window.detectAllCats = detectAllCats; window.detectTags = detectTags; window.TAG_RULES = TAG_RULES;
+window.detectAllCats = detectAllCats; window.detectTags = detectTags; window.extractHashtags = extractHashtags; window.TAG_RULES = TAG_RULES;
 const SESS = 'miahso-session', CFGK = 'miahso-cfg', YTLAST = 'miahso-yt-last', SYNCED = 'miahso-synced';
 const lsGet = k => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
 const lsSet = (k, v) => { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* ignore */ } };
@@ -223,7 +226,7 @@ async function ytSyncAccount(a) {
       const st = v.statistics || {}, id = 'yt-' + v.id;
       let it = state.items.find(x => x.id === id);
       if (!it) {
-        it = { id, tags: detectTags(v.snippet.title + ' ' + (v.snippet.description || '').slice(0, 400) + ' ' + ((v.snippet.tags || []).join(' '))), title: v.snippet.title, category: detectCat(v.snippet.title + ' ' + (v.snippet.description || '').slice(0, 400) + ' ' + ((v.snippet.tags || []).join(' ')), learnCats()) || 'Autre', accountId: a.id, status: 'publié', date: iso(new Date(v.snippet.publishedAt)), note: '', moved: today(), source: 'youtube' };
+        it = { id, hashtags: extractHashtags(v.snippet.title + ' ' + (v.snippet.description || '')), tags: detectTags(v.snippet.title + ' ' + (v.snippet.description || '').slice(0, 1500) + ' ' + ((v.snippet.tags || []).join(' '))), title: v.snippet.title, category: detectCat(v.snippet.title + ' ' + (v.snippet.description || '').slice(0, 400) + ' ' + ((v.snippet.tags || []).join(' ')), learnCats()) || 'Autre', accountId: a.id, status: 'publié', date: iso(new Date(v.snippet.publishedAt)), note: '', moved: today(), source: 'youtube' };
         state.items.push(it);
       }
       if (!it.fmtLocked) { const dm = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec((v.contentDetails || {}).duration || ''); if (dm) it.fmt = ((+dm[1] || 0) * 3600 + (+dm[2] || 0) * 60 + (+dm[3] || 0)) <= 180 ? 'short' : 'long'; }
@@ -377,7 +380,7 @@ function startCsv(file) {
           const stats = { views: col('views') >= 0 ? parseNum(row[col('views')]) : '', likes: col('likes') >= 0 ? parseNum(row[col('likes')]) : '', comments: col('comments') >= 0 ? parseNum(row[col('comments')]) : '' };
           const it = state.items.find(x => x.id === id);
           if (it) { Object.assign(it, stats); updated++; }
-          else { state.items.push(Object.assign({ id, tags: detectTags(title), title: title.slice(0, 140), category: detectCat(title, learnCats()) || 'Autre', accountId: out.acc, status: 'publié', date, note: '', moved: today(), source: 'csv' }, stats)); added++; }
+          else { state.items.push(Object.assign({ id, hashtags: extractHashtags(row[col('title')] || title), tags: detectTags(row[col('title')] || title), title: title.slice(0, 140), category: detectCat(title, learnCats()) || 'Autre', accountId: out.acc, status: 'publié', date, note: '', moved: today(), source: 'csv' }, stats)); added++; }
         });
         state.settings = Object.assign({}, state.settings, { imports: Object.assign({}, (state.settings || {}).imports, { [out.acc]: today() }) });
         setTimeout(() => toast(`Import : ${added} nouveau${added > 1 ? 'x' : ''}, ${updated} mis à jour, ${skipped} ignoré${skipped > 1 ? 's' : ''}${others ? ` (+ ${others} d'un autre compte)` : ''}`), 50);
