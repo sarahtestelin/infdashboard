@@ -651,6 +651,7 @@ function creatorForm(c) {
     { name: 'name', label: 'Nom ou @pseudo', type: 'text', required: true },
     { name: 'platform', label: 'Plateforme principale', type: 'select', options: TREND_PLATFORMS.map(p => [p, p]) },
     { name: 'link', label: 'Lien du profil (facultatif)', type: 'url' },
+    { name: 'ytHandle', label: 'Chaîne YouTube pour le suivi automatique (@nom ou lien, facultatif)', type: 'text' },
     { name: 'observe', label: 'Ce que j\'observe chez elle (formats, sons, rythme…)', type: 'textarea' }
   ], c, out => { Object.assign(c, out); if (isNew) state.creators.push(c); },
   isNew ? null : () => { state.creators = state.creators.filter(x => x !== c); state.inspirations.forEach(i => { if (i.creatorId === c.id) i.creatorId = ''; }); });
