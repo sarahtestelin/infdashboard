@@ -2,7 +2,7 @@
    Formats gagnants, rythme de publication, studio créatif (idées + textes), collaborations. */
 (function () {
   'use strict';
-  const S = { fmtAcc: 'all', fmtPer: 90, tab: 'ideas', ideas: [], gen: { topic: '', cat: '', plat: 'tiktok', out: [] }, copy: [], cFilter: 'active' };
+  const S = { fmtAcc: 'all', fmtPer: 90, tab: 'claude', ideas: [], gen: { topic: '', cat: '', plat: 'tiktok', out: [] }, copy: [], cFilter: 'active' };
   const stg = () => (state.settings = state.settings || {});
   const slots = () => (Array.isArray(stg().slots) ? stg().slots : []);
   const collabs = () => (Array.isArray(state.collabs) ? state.collabs : (state.collabs = []));
@@ -167,10 +167,51 @@
     if (g.plat === 'ytlong') out.push({ label: 'Description YouTube', text: `${U} : un ASMR doux pour te détendre, te concentrer ou t'endormir. 🎧 Casque conseillé.\n\n⏱️ Chapitres :\n00:00 Introduction\n00:30 ...\n\n${cta[0]}\n\n📩 Collaborations : lien en bio\n\n${tagsFor(g.cat, 3, 'yt').join(' ')}`, }, { label: 'Tags YouTube (champ « Tags »)', text: tagsFor(g.cat, 8, 'yt').map(x => x.slice(1)).join(', ') });
     g.out = out; S.copy = out.map(o => o.text);
   }
+  function buildPrompt() {
+    const P = 90, its = withViews(periodItems(P, 0));
+    const lab = i => { const a = acc(i.accountId); return (a ? a.name : 'Compte ?') + (a && splitOn(a) ? ' (' + FMT_LABEL[itemFmt(i)] + ')' : ''); };
+    const line = i => { const e = engagement([i]); return `- « ${trunc(i.title, 80)} » · ${lab(i)} · ${i.category || 'Autre'} · ${fmt(i.views)} vues${e != null ? ' · ' + e.toFixed(1).replace('.', ',') + ' % d\'engagement' : ''}`; };
+    const byCat = {}; its.forEach(i => { const k = i.category || 'Autre'; (byCat[k] = byCat[k] || []).push(i); });
+    const cats = Object.entries(byCat).map(([k, v]) => `- ${k} : ${v.length} post${v.length > 1 ? 's' : ''}, ${fmt(Math.round(sumViews(v) / v.length))} vues en moyenne`).join('\n');
+    const plats = viewAccs().map(a => { const v = its.filter(i => matchAcc(i, a.id)); return v.length ? `- ${a.name} : ${v.length} post${v.length > 1 ? 's' : ''}, ${fmt(Math.round(sumViews(v) / v.length))} vues en moyenne` : ''; }).filter(Boolean).join('\n');
+    const sorted = [...its].sort((a, b) => Number(b.views) - Number(a.views));
+    const days = dayAverages(its), bestD = days.reduce((b, x) => x.avg > b.avg ? x : b, days[0]);
+    const bank = state.items.filter(i => i.status === 'idée').map(i => '- ' + trunc(i.title, 80)).slice(0, 25).join('\n');
+    if (!its.length) return '';
+    return `Tu es mon assistante de création de contenu pour Miahso_ (ASMR + lifestyle, pop culture, beauté, gaming ; ambiance cozy et un peu chaotique ; TikTok, Instagram, 2 chaînes YouTube).
+Voici mes statistiques des ${P} derniers jours. Propose-moi 10 idées de contenus originales, basées sur ce qui marche vraiment chez moi.
+
+Pour chaque idée : un titre accrocheur, la plateforme et le format conseillés (TikTok, Reel, Short, vidéo longue), pourquoi ça devrait marcher d'après mes chiffres, et 3 hashtags. Ne répète pas mes posts existants ni mes idées déjà en banque. Mélange des idées sûres (dans la lignée de mes meilleurs posts) et 2 ou 3 idées plus risquées pour tester de nouveaux formats.
+
+## Mes types de contenu (vues moyennes)
+${cats}
+
+## Par plateforme / format
+${plats}
+
+## Mes ${Math.min(8, sorted.length)} meilleurs posts
+${sorted.slice(0, 8).map(line).join('\n')}
+
+## Mes ${Math.min(5, Math.max(0, sorted.length - 8))} posts les moins vus
+${sorted.length > 8 ? sorted.slice(Math.max(8, sorted.length - 5)).reverse().map(line).join('\n') : '(pas assez de posts)'}
+
+## Meilleur jour pour publier
+${bestD && bestD.avg ? DAY_LONG[bestD.d] + ' (' + fmt(Math.round(bestD.avg)) + ' vues en moyenne)' : 'pas assez de données'}
+
+## Mes idées déjà en banque (à ne pas répéter)
+${bank || '(aucune)'}`;
+  }
   function studioPage() {
-    const tab = `<div class="bar-tools"><div class="seg">${[['ideas', 'Idées de contenu'], ['texts', 'Titres, descriptions & hashtags']].map(([v, l]) => `<button data-action="st-tab" data-id="${v}" class="${S.tab === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>`;
+    const tab = `<div class="bar-tools"><div class="seg">${[['claude', 'Idées sur mesure (avec Claude)'], ['ideas', 'Idées rapides'], ['texts', 'Titres, descriptions & hashtags']].map(([v, l]) => `<button data-action="st-tab" data-id="${v}" class="${S.tab === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>`;
     let body = '';
-    if (S.tab === 'ideas') {
+    if (S.tab === 'claude') {
+      const p = buildPrompt();
+      body = `<section class="card"><h3>Idées sur mesure, d'après tes vrais chiffres</h3>
+        <p class="muted">L'app prépare un résumé de ce qui marche chez toi (meilleurs et moins bons posts, types de contenu, plateformes, meilleur jour, idées déjà en banque). Tu le colles dans Claude, qui te propose 10 idées adaptées à tes résultats.</p>
+        ${p ? `<ol class="muted"><li>Clique sur <b>Copier mon résumé</b>.</li><li>Ouvre Claude (dans ton projet Miahso_) et colle-le.</li><li>Recopie les idées qui te plaisent dans ta banque d'idées.</li></ol>
+        <div class="actions" style="justify-content:flex-start"><button class="btn" data-action="st-copyprompt">${icon('up')} Copier mon résumé</button><a class="btn ghost" href="https://claude.ai/new" target="_blank" rel="noopener">Ouvrir Claude</a></div>
+        <details class="howto"><summary>Voir ce qui sera copié</summary><div class="gen">${esc(p)}</div></details>` : '<div class="empty">Pas encore de posts publiés avec des vues sur 90 jours. Synchronise YouTube ou importe tes CSV, puis reviens ici.</div>'}</section>`;
+    } else if (S.tab === 'ideas') {
       if (!S.ideas.length) genIdeas();
       body = `<section class="card"><h3>Idées pour toi <small class="muted" style="font:400 .8rem var(--sans)">d'après tes meilleurs posts</small></h3>
         <p class="muted">Pistes ASMR et lifestyle tirées de tes stats (catégories qui marchent, remix de tes meilleurs posts). Ce sont des suggestions automatiques : adapte-les à ta façon de faire.</p>
@@ -265,7 +306,7 @@
         itemForm(null, { status: 'planifié', date: d < today() ? today() : d, accountId: base[0], fmt: base[1] || '', category: s.cat || (CATS[0] || 'ASMR') });
         return true;
       }
-      case 'st-tab': readGen(); S.tab = id; render(); return true;
+      case 'st-tab': readGen(); S.tab = id; if (id === 'ideas' && !S.ideas.length) genIdeas(); render(); return true;
       case 'st-regen': genIdeas(); render(); return true;
       case 'st-add': {
         const x = S.ideas[Number(id)]; if (!x || x.added) return true;
@@ -274,6 +315,7 @@
       }
       case 'st-pick': { const it = state.items.find(i => i.id === id); if (it) { S.gen.topic = it.title; S.gen.cat = it.category || ''; render(); } return true; }
       case 'st-gen': readGen(); genTexts(); render(); return true;
+      case 'st-copyprompt': copyText(buildPrompt()); return true;
       case 'st-copy': copyText(S.copy[Number(id)] || ''); return true;
       case 'c-add': collabForm(); return true;
       case 'c-edit': collabForm(collabs().find(c => c.id === id)); return true;
