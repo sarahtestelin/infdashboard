@@ -1,6 +1,6 @@
 'use strict';
 /* Miahso_ Dashboard — extras : synchro Supabase, YouTube, import CSV, réglages */
-const APP_VERSION = '13';
+const APP_VERSION = '14';
 const SESS = 'miahso-session', CFGK = 'miahso-cfg', YTLAST = 'miahso-yt-last', SYNCED = 'miahso-synced';
 const lsGet = k => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
 const lsSet = (k, v) => { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* ignore */ } };
@@ -472,6 +472,7 @@ function settings() {
     <div class="actions" style="justify-content:flex-start"><button class="btn" data-action="yt-save">Enregistrer</button><button class="btn ghost" data-action="yt-sync">${YT.busy ? 'En cours…' : 'Synchroniser maintenant'}</button></div>
     ${YT.msg ? `<pre class="log">${esc(YT.msg)}</pre>` : ''}`;
   const csvBody = `<p class="muted">TikTok et Instagram ne se connectent pas à l'app : exporte tes statistiques en CSV (TikTok Studio > Analytics > Contenu > Télécharger les données ; Meta Business Suite > Insights > Contenu > Exporter les données), puis importe le fichier ici. Les colonnes sont reconnues automatiquement et tu peux les corriger avant de valider. Réimporter le même fichier met à jour les chiffres sans doublon.</p>
+    <div class="actions" style="justify-content:flex-start"><a class="btn ghost" href="https://www.tiktok.com/tiktokstudio/analytics/content" target="_blank" rel="noopener">1 · Exporter TikTok</a><a class="btn ghost" href="https://business.facebook.com/latest/insights/content_overview" target="_blank" rel="noopener">1 · Exporter Instagram</a></div>
     <div class="actions" style="justify-content:flex-start"><button class="btn" data-action="csv-pick">${icon('up')} Choisir un fichier CSV</button><button class="btn ghost sm" data-action="csv-clear">Effacer les imports CSV</button></div>
     <p class="muted"><small>Pense à bien choisir le compte (TikTok, Instagram…) dans la fenêtre d'import. « Effacer les imports CSV » supprime seulement les posts venus d'un CSV, pour pouvoir les réimporter proprement.</small></p>`;
   const installBody = `${deferredPrompt ? `<div class="actions" style="justify-content:flex-start;margin:0 0 10px"><button class="btn" data-action="install-app">Installer l'app</button></div>` : ''}
