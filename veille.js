@@ -2,7 +2,56 @@
    Veille concurrentielle : ce qui marche chez les autres, tendances qui reviennent, benchmark. */
 (function () {
   'use strict';
-  const S = { per: 30, busy: false };
+  const S = { per: 30, busy: false, disc: null, discBusy: false };
+  /* Créatrices de ta niche repérées sur le web (handles YouTube à vérifier : « Actualiser » signale ceux qui sont introuvables) */
+  const SUGGESTED = [
+    { name: 'Alteanne', platform: 'TikTok', ytHandle: '@alteanne', note: 'ASMR lifestyle française, ~3,4 M sur TikTok, 5 vidéos/semaine, objets du quotidien et produits du moment. À vérifier : handle YouTube.' },
+    { name: 'ASMR Kali', platform: 'YouTube', ytHandle: '@ASMRKali', note: 'ASMR française, chuchotements et tapping, YouTube + TikTok (~880 k). À vérifier : handle.' },
+    { name: 'Vanukee ASMR', platform: 'YouTube', ytHandle: '@VanukeeASMR', note: 'ASMR longue durée avec triggers originaux, rendez-vous fixes (lundi et jeudi), lives TikTok. À vérifier : handle.' },
+    { name: 'Dolce Romy ASMR', platform: 'YouTube', ytHandle: '@DolceRomyASMR', note: 'Chaîne ASMR d\'une youtubeuse lifestyle / beauté : bon exemple pour mêler ASMR et lifestyle. À vérifier : handle.' },
+    { name: 'Roroow', platform: 'TikTok', ytHandle: '', note: 'ASMR française centrée sommeil et confort, mélange moments lifestyle et ASMR (~150 k sur TikTok).' },
+    { name: 'Paris ASMR', platform: 'YouTube', ytHandle: '@ParisASMR', note: 'Spa, massage, cosmétique en ASMR. À vérifier : handle.' },
+    { name: 'Roxane ASMR', platform: 'YouTube', ytHandle: '@RoxaneASMR', note: 'Tapping, roleplay, soins. À vérifier : handle.' },
+    { name: 'Rikita ASMR Français', platform: 'YouTube', ytHandle: '@RikitaASMR', note: 'ASMR française régulière. À vérifier : handle.' },
+    { name: 'Voxil', platform: 'YouTube', ytHandle: '@Voxil', note: 'Angle gaming : parties commentées avec sons de clavier. À vérifier : handle.' },
+    { name: 'Kori (koripeluche)', platform: 'TikTok', ytHandle: '', note: 'ASMR + gaming (Twitch / YouTube) : même mélange que toi.' },
+    { name: 'noemiemtouch', platform: 'TikTok', ytHandle: '', note: 'ASMR proche du lifestyle, avec chaîne YouTube lifestyle.' },
+    { name: 'Evie ASMR', platform: 'TikTok', ytHandle: '', note: 'Micro-créatrice ASMR (~42 k) : FAQ, hauls et storytimes en ASMR.' }
+  ];
+  const addSuggested = () => {
+    const have = new Set(state.creators.map(c => (c.name || '').toLowerCase()));
+    let n = 0;
+    SUGGESTED.forEach(x => { if (have.has(x.name.toLowerCase())) return; state.creators.push({ id: uid(), name: x.name, platform: x.platform, link: '', ytHandle: x.ytHandle, observe: x.note }); n++; });
+    save(); render(); toast(n ? `${n} créatrice${n > 1 ? 's' : ''} ajoutée${n > 1 ? 's' : ''}. Clique sur « Actualiser YouTube » pour récupérer leurs stats.` : 'Elles sont déjà toutes dans ta liste.');
+  };
+  async function discover(q) {
+    if (!stg().ytKey) { toast('Ajoute d\'abord ta clé YouTube dans Réglages.'); return; }
+    S.discBusy = true; render();
+    try {
+      const r = await ytFetch('search', { part: 'snippet', type: 'channel', q, maxResults: 10, regionCode: 'FR', relevanceLanguage: 'fr' });
+      const ids = (r.items || []).map(x => x.snippet.channelId || (x.id || {}).channelId).filter(Boolean);
+      const st = ids.length ? await ytFetch('channels', { part: 'statistics,snippet', id: ids.join(',') }) : { items: [] };
+      S.disc = (st.items || []).map(c => ({ id: c.id, name: c.snippet.title, subs: c.statistics.hiddenSubscriberCount ? null : Number(c.statistics.subscriberCount), vids: Number(c.statistics.videoCount) || 0 })).sort((a, b) => (b.subs || 0) - (a.subs || 0));
+    } catch (e) { toast('Recherche impossible : ' + e.message); }
+    S.discBusy = false; render();
+  }
+  const adviceCard = () => {
+    const tracked = state.creators.filter(c => comp()[c.id]);
+    if (!tracked.length) return '';
+    const mine = myStats(), out = [];
+    const cads = tracked.map(c => comp()[c.id].vids.filter(x => x.d >= addDays(today(), -30)).length), avgCad = cads.reduce((a, b) => a + b, 0) / cads.length;
+    const myCad = mine.reduce((a, r) => a + (r.cadence || 0), 0);
+    if (avgCad >= 1) out.push(myCad < avgCad ? `Elles publient en moyenne ${Math.round(avgCad)} vidéos YouTube par mois, toi ${myCad} : un rythme plus régulier aide l'algorithme.` : `Ton rythme (${myCad} vidéos sur 30 jours) est au niveau des créatrices suivies (${Math.round(avgCad)}).`);
+    const meds = tracked.map(c => median(comp()[c.id].vids.map(x => x.v))).filter(Boolean), myMed = mine.length ? Math.max(...mine.map(r => r.med)) : 0;
+    if (meds.length && myMed) out.push(`Vues d'une vidéo « normale » : ${fmt(Math.round(median(meds)))} chez elles (médiane), ${fmt(Math.round(myMed))} chez toi.`);
+    const mineTitles = state.items.map(i => (i.title || '').toLowerCase()).join(' ');
+    const kw = keywords(inPeriod(outliers())).map(k => k[0]).filter(w => !mineTitles.includes(w)).slice(0, 5);
+    if (kw.length) out.push(`Thèmes qui marchent chez elles et que tu n'as pas encore traités : ${kw.join(', ')}. Teste-les à ta façon.`);
+    const shorts = tracked.reduce((a, c) => a + comp()[c.id].vids.filter(x => x.fmt === 'short').length, 0), tot = tracked.reduce((a, c) => a + comp()[c.id].vids.length, 0);
+    if (tot >= 10) out.push(`${Math.round(shorts / tot * 100)} % de leurs vidéos récentes sont des Shorts.`);
+    return out.length ? `<section class="card"><h3>Ce que ça change pour toi</h3>${out.map(t => `<p class="muted" style="margin:6px 0">${esc(t)}</p>`).join('')}</section>` : '';
+  };
+  const discCard = () => `<section class="card"><h3>Découvrir des chaînes</h3><p class="muted">Cherche des chaînes YouTube dans ta niche (≈ 100 unités de quota par recherche) et ajoute celles qui t'inspirent.</p><div class="actions" style="justify-content:flex-start"><button class="btn ghost" data-action="cp-disc" data-id="ASMR français">ASMR</button><button class="btn ghost" data-action="cp-disc" data-id="ASMR lifestyle grwm français">ASMR lifestyle</button><button class="btn ghost" data-action="cp-disc" data-id="ASMR gaming français">ASMR gaming</button><button class="btn ghost" data-action="cp-disc" data-id="ASMR skincare maquillage français">ASMR beauté</button><button class="btn ghost" data-action="cp-disc" data-id="">Autre recherche</button></div>${S.discBusy ? '<p class="muted">Recherche…</p>' : ''}${(S.disc || []).map(c => `<div class="ins-row"><div style="flex:1;min-width:0"><b>${esc(c.name)}</b><p>${c.subs == null ? '—' : fmt(c.subs) + ' abonnés'} · ${fmt(c.vids)} vidéos</p></div>${state.creators.some(x => (x.ytHandle || '').includes(c.id)) ? '<span class="muted">Suivie ✓</span>' : `<button class="btn sm" data-action="cp-follow" data-id="${esc(c.id)}">Suivre</button>`}</div>`).join('')}</section>`;
   const stg = () => (state.settings = state.settings || {});
   const comp = () => (state.comp && typeof state.comp === 'object' ? state.comp : (state.comp = {}));
   const used = () => (Array.isArray(stg().compUsed) ? stg().compUsed : (stg().compUsed = []));
@@ -106,10 +155,10 @@
     if (kw.length) insights.push(`Thèmes qui reviennent : ${kw.slice(0, 5).map(k => k[0]).join(', ')}.`);
     const kwCard = `<section class="card"><h3>Ce qui revient dans les contenus qui marchent</h3>${insights.length ? insights.map(t => `<p class="muted" style="margin:6px 0">${esc(t)}</p>`).join('') : '<p class="muted">Pas encore assez de données. Ajoute des créatrices avec leur chaîne YouTube et note les posts TikTok / Instagram qui cartonnent.</p>'}${kw.length ? `<div class="chips">${kw.map(([w, n]) => `<span class="chipb" style="cursor:default">${esc(w)} · ${n}</span>`).join('')}</div>` : ''}</section>`;
     return head('Veille concurrentielle', 'Ce qui marche chez les autres, pour repérer les tendances et t\'en inspirer à ta façon.',
-      `<button class="btn ghost" data-action="cp-sync">${icon('up')} ${S.busy ? 'En cours…' : 'Actualiser YouTube'}</button> <button class="btn ghost" data-action="cp-prompt">Résumé pour Claude</button> <button class="btn" data-action="cp-add">${icon('plus')} Post qui cartonne</button>`) +
+      `<button class="btn ghost" data-action="cp-sync">${icon('up')} ${S.busy ? 'En cours…' : 'Actualiser YouTube'}</button> <button class="btn ghost" data-action="cp-prompt">Résumé pour Claude</button> <button class="btn ghost" data-action="cp-sugg">Ajouter les créatrices de ma niche</button> <button class="btn" data-action="cp-add">${icon('plus')} Post qui cartonne</button>`) +
       `<div class="tiles">${tiles}</div><div class="bar-tools">${perPills}<button class="btn ghost sm" data-action="nav" data-id="watch">Gérer mes créatrices</button></div>` +
       `<section class="card"><h3>Ce qui cartonne en ce moment</h3>${list.slice(0, 15).map(row).join('') || '<div class="empty">Rien pour l\'instant. Pour le suivi automatique YouTube : page Veille → fiche d\'une créatrice → champ « Chaîne YouTube », puis « Actualiser YouTube ». Pour TikTok et Instagram : « Post qui cartonne » (vue + ce qui marche).</div>'}</section>` +
-      kwCard + benchCard;
+      kwCard + adviceCard() + benchCard + discCard();
   }
 
   /* ---------- saisie manuelle (TikTok / Instagram) ---------- */
@@ -166,6 +215,9 @@ ${mine || '(pas de données)'}`;
       case 'cp-per': S.per = Number(id); render(); return true;
       case 'cp-sync': compSync(true); return true;
       case 'cp-add': compForm(); return true;
+      case 'cp-sugg': addSuggested(); return true;
+      case 'cp-disc': { let q = id; if (!q) q = (prompt('Que chercher ? (ex : ASMR cozy gaming)') || '').trim(); if (q) discover(q); return true; }
+      case 'cp-follow': { const c = (S.disc || []).find(x => x.id === id); if (c) { state.creators.push({ id: uid(), name: c.name, platform: 'YouTube', link: '', ytHandle: 'https://www.youtube.com/channel/' + c.id, observe: 'Trouvée via « Découvrir des chaînes ».' }); save(); render(); toast(c.name + ' ajoutée. Clique sur « Actualiser YouTube ».'); } return true; }
       case 'cp-use': reuse(id); return true;
       case 'cp-prompt': { const p = buildPrompt(); if (!p) toast('Pas encore de posts repérés : ajoute-en d\'abord.'); else { copyText(p); toast('Résumé copié : colle-le dans Claude'); } return true; }
     }
@@ -182,5 +234,6 @@ ${mine || '(pas de données)'}`;
     return base.slice(0, 6);
   };
   if (typeof SAVED_PAGE !== 'undefined' && SAVED_PAGE === 'compet') { page = 'compet'; }
+  if (!stg().catDetected && window.detectAllCats) { const r = detectAllCats(); stg().catDetected = '21'; if (r.n) save(); }
   render();
 })();

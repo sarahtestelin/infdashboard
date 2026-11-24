@@ -1,4 +1,4 @@
-const CACHE = 'miahso-v20';
+const CACHE = 'miahso-v21';
 const ASSETS = ['./', 'index.html', 'style.css', 'config.js', 'app.js', 'extras.js', 'studio.js', 'veille.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
